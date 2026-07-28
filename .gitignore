@@ -1,0 +1,40 @@
+# Cartelle pesanti e dati
+data/
+output/
+checkpoints/
+
+# Modelli e pesi AI
+*.pt
+*.pth
+*.h5
+*.onnx
+*.engine
+
+# Cache Python e ambienti virtuali
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# File di log e temporanei
+*.log
+*.tmp
+*.temp
+
+# File di sistema e IDE
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

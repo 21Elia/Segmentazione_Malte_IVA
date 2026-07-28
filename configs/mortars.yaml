@@ -1,0 +1,68 @@
+DEVICE          : cuda                        # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
+SAVE_DIR        : 'output/MMSFormer'          # output folder name used for saving the model, logs and inference results
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-MORTARS-2CLASS-RUN2'             # name for the run
+
+MODEL:
+  NAME          : MMSFormer                                         # name of the model you are using
+  BACKBONE      : MMSFormer-B3                                      # model variant (MMSFormer-B3 è la migliore del report)
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'     # backbone model's weight 
+  RESUME        : ''                                                # checkpoint file per riprendere il training
+
+DATASET:
+  NAME          : MORTARS                                           # dataset class
+  ROOT          : 'data/mortars'                                    # percorso locale delle patch
+  IGNORE_LABEL  : 3
+  MODALS        : ['paralleli', 'incrociati'] 
+  NUM_CLASSES   : 2                                                 # 2 classi: 0=Legante (+Porosità), 1=Aggregati
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]      # training image size in (h, w)
+  BATCH_SIZE    : 4               # batch size per GPU
+  EPOCHS        : 100             # numero totale di epoche (100 come nel report)
+  EVAL_START    : 0               # da quale epoca iniziare l'evaluation durante il training
+  EVAL_INTERVAL : 5               # intervallo di epoche ogni quanto fare l'evaluation (es. ogni 5 epoche)
+  AMP           : false            # usa Automatic Mixed Precision (più veloce su GPU RTX)
+  DDP           : false           # use DDP training
+  WEIGHTED_RANDOM_SAMPLER : true
+
+LOSS:
+  NAME          : OhemCrossEntropy # Online Hard Example Mining Cross Entropy
+  CLS_WEIGHTS   : false            # disattivato nella configurazione migliore del report
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5] 
+
+OPTIMIZER:
+  NAME          : adamw           # ottimizatore AdamW
+  LR            : 0.0001         # initial learning rate used in optimizer
+  WEIGHT_DECAY  : 0.1            # decay rate used in optimizer 
+
+SCHEDULER:
+  NAME          : warmuppolylr    # scheduler name
+  POWER         : 0.9             # scheduler power
+  WARMUP        : 10              # warmup epochs used in scheduler
+  WARMUP_RATIO  : 0.1             # warmup ratio
+  
+
+EVAL:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-2CLASS-B3/MMSFormer_MMSFormer-B3_MORTARS_epoch100_best.pth'  # Path salvataggio
+  IMAGE_SIZE    : [512, 512]                              
+  BATCH_SIZE    : 1                                     
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD: 0.20
+  SAVE_CONFUSION: True
+  VIS_SAVE_DIR  : 'data/mortars_results'                      
+  CONFUSION_DIR : 'data/confusion_matrix'
+  MSF:  
+    ENABLE      : false                                   
+    FLIP        : true                                    
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]       
+
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-2CLASS-B3/MMSFormer_MMSFormer-B3_MORTARS_epoch100_best.pth'
+  IMAGE_SIZE    : [512, 512]                              
+  VIS_SAVE_DIR  : 'infer_results'                      
+  FILE          : 'data/mortars'
+  OVERLAY       : true
