@@ -8,22 +8,25 @@ WANDB_NAME      : 'MMSF-MORTARS-2CLASS-RUN2'             # name for the run
 MODEL:
   NAME          : MMSFormer                                         # name of the model you are using
   BACKBONE      : MMSFormer-B3                                      # model variant (MMSFormer-B3 è la migliore del report)
-  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'     # backbone model's weight 
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'     # backbone model's weights 
   RESUME        : ''                                                # checkpoint file per riprendere il training
 
 DATASET:
   NAME          : MORTARS                                           # dataset class
   ROOT          : 'data/mortars'                                    # percorso locale delle patch
-  IGNORE_LABEL  : 3
-  MODALS        : ['paralleli', 'incrociati'] 
-  NUM_CLASSES   : 2                                                 # 2 classi: 0=Legante (+Porosità), 1=Aggregati
+  IGNORE_LABEL  : 3       # valore del pixel nella maschera di ground truth che rappresenta il padding
+                          # o aree prive di informazione. Verranno ignorati questi pixel durante il
+                          # calcolo della Loss e delle metriche, in modo che tali pixel non influenzino
+                          # il training
+  MODALS        : ['paralleli', 'incrociati']     # specifica le modalità di acquisizione da mettere in input all'MMSFormer
+  NUM_CLASSES   : 2       # 2 classi: 0=Legante (+Porosità), 1=Aggregati
 
 TRAIN:
   IMAGE_SIZE    : [512, 512]      # training image size in (h, w)
-  BATCH_SIZE    : 4               # batch size per GPU
-  EPOCHS        : 100             # numero totale di epoche (100 come nel report)
+  BATCH_SIZE    : 4               # batch size per la GPU
+  EPOCHS        : 100             # numero totale di epoche (nel report la versione migliore usa 100)
   EVAL_START    : 0               # da quale epoca iniziare l'evaluation durante il training
-  EVAL_INTERVAL : 5               # intervallo di epoche ogni quanto fare l'evaluation (es. ogni 5 epoche)
+  EVAL_INTERVAL : 5               # intervallo di epoche ogni quanto fare l'evaluation
   AMP           : false            # usa Automatic Mixed Precision (più veloce su GPU RTX)
   DDP           : false           # use DDP training
   WEIGHTED_RANDOM_SAMPLER : true
@@ -38,7 +41,7 @@ OPTIMIZER:
   LR            : 0.0001         # initial learning rate used in optimizer
   WEIGHT_DECAY  : 0.1            # decay rate used in optimizer 
 
-SCHEDULER:
+SCHEDULER: # algoritmo che fa decrescere gradualmente il LR durante il training per assestarsi su un minimo locale della loss function verso la fine delle epoche
   NAME          : warmuppolylr    # scheduler name
   POWER         : 0.9             # scheduler power
   WARMUP        : 10              # warmup epochs used in scheduler
@@ -46,13 +49,13 @@ SCHEDULER:
   
 
 EVAL:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-2CLASS-B3/MMSFormer_MMSFormer-B3_MORTARS_epoch100_best.pth'  # Path salvataggio
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-2CLASS-B3/MMSFormer_MMSFormer-B3_MORTARS_epoch100_best.pth'  # path salvataggio dei pesi della rete quando ottiene metriche migliori sul validation
   IMAGE_SIZE    : [512, 512]                              
   BATCH_SIZE    : 1                                     
   SAVE_PREDICTIONS : true
   ERROR_THRESHOLD: 0.20
   SAVE_CONFUSION: True
-  VIS_SAVE_DIR  : 'data/mortars_results'                      
+  VIS_SAVE_DIR  : 'data/mortars_results' # path dove salvare i log, grafici della loss e mappe di predizione generate durante i test                     
   CONFUSION_DIR : 'data/confusion_matrix'
   MSF:  
     ENABLE      : false                                   
