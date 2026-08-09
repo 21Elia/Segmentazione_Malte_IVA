@@ -29,12 +29,25 @@ class OhemCrossEntropy(nn.Module):
 
     def _forward(self, preds: Tensor, labels: Tensor) -> Tensor:
         # preds in shape [B, C, H, W] and labels in shape [B, H, W]
-        n_min = labels[labels != self.ignore_label].numel() // 16
-        loss = self.criterion(preds, labels).view(-1)
-        loss_hard = loss[loss > self.thresh]
+        valid_mask = (labels != self.ignore_label)
+        n_valid = valid_mask.sum().item()
+        if n_valid == 0:
+            return preds.sum() * 0.0
+
+        n_min = max(1, n_valid // 16)
+        loss = self.criterion(preds, labels)[valid_mask].view(-1)
+        if loss.numel() == 0:
+            return preds.sum() * 0.0
+
+        thresh_val = self.thresh.to(preds.device)
+        loss_hard = loss[loss > thresh_val]
 
         if loss_hard.numel() < n_min:
-            loss_hard, _ = loss.topk(n_min)
+            n_k = min(n_min, loss.numel())
+            loss_hard, _ = loss.topk(n_k)
+
+        if loss_hard.numel() == 0:
+            return preds.sum() * 0.0
 
         return torch.mean(loss_hard)
 
