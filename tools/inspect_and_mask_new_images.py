@@ -80,7 +80,7 @@ def create_alignment_overlay(np_img, nx_img, max_preview_dim=2000):
     
     return false_color
 
-def generate_validity_mask(np_img, min_area_ratio=0.015, kernel_size=31):
+def generate_validity_mask(np_img, min_area_ratio=0.01, kernel_size=21):
     """
     Generates a solid binary validity mask for the mortar section.
     Handles both dark background slides (UNITO_B) and bright resin slides (1_SCALA),
@@ -116,21 +116,23 @@ def generate_validity_mask(np_img, min_area_ratio=0.015, kernel_size=31):
     
     if bg_is_dark:
         # Dark background (UNITO_B): Mortar is brighter than dark resin background
-        blurred = cv2.GaussianBlur(gray, (15, 15), 0)
+        blurred = cv2.GaussianBlur(gray, (11, 11), 0)
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        kernel_c = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+        cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_c)
     else:
         # Bright background (1_SCALA):
         # Background consists of TWO parts:
         # 1. Pure black scanning margins (gray < 20)
-        # 2. Bright white resin (val > 215 AND sat < 20)
-        is_bg = (gray < 20) | ((val > 215) & (sat < 20))
+        # 2. Bright/off-white resin (val > 165 AND sat < 45)
+        is_bg = (gray < 20) | ((val > 165) & (sat < 45))
         thresh = (~is_bg).astype(np.uint8) * 255
-        
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
+        kernel_c = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_c)
+        cleaned = cv2.morphologyEx(closed, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
+
     
-    contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     sub_area = sh * sw
     valid_contours = [c for c in contours if cv2.contourArea(c) >= min_area_ratio * sub_area]
@@ -144,6 +146,7 @@ def generate_validity_mask(np_img, min_area_ratio=0.015, kernel_size=31):
         cv2.drawContours(mask_full, full_contours, -1, 0, thickness=-1)
         
     return mask_full
+
 
 
 
