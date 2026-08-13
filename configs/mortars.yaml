@@ -8,8 +8,8 @@ WANDB_NAME      : 'MMSF-MORTARS-2CLASS-RUN2'             # name for the run
 MODEL:
   NAME          : MMSFormer                                         # name of the model you are using
   BACKBONE      : MMSFormer-B3                                      # model variant (MMSFormer-B3 è la migliore del report)
-  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'     # backbone model's weights 
-  RESUME        : ''                                                # checkpoint file per riprendere il training
+  PRETRAINED    : 'checkpoints/pretrained/segformer/2classes_no5_MMSFormer_MMSFormer-B3_MORTARS_epoch100_77.81.pth'     # backbone model's weights 
+  RESUME        : '' # checkpoint file per riprendere il training
 
 DATASET:
   NAME          : MORTARS                                           # dataset class

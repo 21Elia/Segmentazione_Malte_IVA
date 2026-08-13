@@ -105,8 +105,10 @@ def main(cfg, save_dir):
     resume_checkpoint = None
     if os.path.isfile(resume_path):
         resume_checkpoint = torch.load(resume_path, map_location=torch.device('cpu'))
-        msg = model.load_state_dict(resume_checkpoint['model_state_dict'])
-        # print(msg)
+        state_dict = resume_checkpoint['model_state_dict']
+        if any(k.startswith("module.") for k in state_dict.keys()):
+            state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+        msg = model.load_state_dict(state_dict)
         logger.info(msg)
     else:
         model.init_pretrained(model_cfg['PRETRAINED'])
