@@ -10,9 +10,17 @@ This script:
 """
 
 import os
+os.environ["OPENCV_LOG_LEVEL"] = "OFF"
+os.environ["OPENCV_FFMPEG_LOG_LEVEL"] = "-8"
+
 import sys
 import glob
 import cv2
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_OFF)
+except Exception:
+    pass
+
 import numpy as np
 from PIL import Image
 from skimage.registration import phase_cross_correlation
@@ -202,41 +210,30 @@ def main():
         
     for item in pairs:
         name = item['name']
-        print(f"\n--- Processing Pair: {name} ---")
+        print(f"\n--- Processing Section: {name} ---")
         print(f"Loading NP: {item['np']}")
         np_img = cv2.imread(item['np'])
-        print(f"Loading NX: {item['nx']}")
-        nx_img = cv2.imread(item['nx'])
         
-        if np_img is None or nx_img is None:
-            print(f"Error loading images for pair {name}")
+        if np_img is None:
+            print(f"Error loading image for section {name}")
             continue
             
         h, w = np_img.shape[:2]
         print(f"Image Dimensions: {w} x {h} pixels")
         
-        # 1. Alignment check
-        print("Calculating Phase Cross Correlation shift...")
-        shift, error = inspect_alignment(np_img, nx_img)
-        print(f"Detected Shift (Y, X): ({shift[0]:.2f}, {shift[1]:.2f}) pixels | Error: {error:.4f}")
-        
-        align_overlay_bgr = create_alignment_overlay(np_img, nx_img)
-        align_overlay_rgb = cv2.cvtColor(align_overlay_bgr, cv2.COLOR_BGR2RGB)
-        align_save_path = os.path.join(output_dir, f"{name}_alignment_overlay.png")
-        align_art_path = os.path.join(artifact_dir, f"{name}_alignment_overlay.png")
-        img_align = Image.fromarray(align_overlay_rgb)
-        img_align.save(align_save_path)
-        img_align.save(align_art_path)
-        print(f"Saved alignment preview to: {align_save_path}")
-        
-        # 2. Validity mask generation (Criterio 2)
+        # Validity mask generation (Criterio 2 - Solid Contour Fill)
         print("Generating global validity mask (Criterio 2 - Solid Contour Fill)...")
         mask = generate_validity_mask(np_img)
         valid_percentage = (np.sum(mask == 0) / (h * w)) * 100.0
         print(f"Valid Mortar Region (0=Black): {valid_percentage:.2f}% of full image area")
 
         
-        # Save full binary mask (downsampled for inspection)
+        # Save full 1:1 binary mask as TIFF (100% native resolution)
+        mask_tif_path = os.path.join(output_dir, f"{name}_validity_mask.tif")
+        cv2.imwrite(mask_tif_path, mask)
+        print(f"Saved full-resolution 1:1 TIFF validity mask to: {mask_tif_path}")
+
+        # Save downsampled preview mask for quick visual inspection
         mask_small = cv2.resize(mask, (0, 0), fx=0.2, fy=0.2)
         mask_save_path = os.path.join(output_dir, f"{name}_validity_mask.png")
         mask_art_path = os.path.join(artifact_dir, f"{name}_validity_mask.png")
