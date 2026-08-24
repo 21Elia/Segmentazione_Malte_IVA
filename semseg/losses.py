@@ -11,6 +11,7 @@ class CrossEntropy(nn.Module):
 
     def _forward(self, preds: Tensor, labels: Tensor) -> Tensor:
         # preds in shape [B, C, H, W] and labels in shape [B, H, W]
+        preds = preds.float()
         return self.criterion(preds, labels)
 
     def forward(self, preds, labels: Tensor) -> Tensor:
@@ -29,6 +30,7 @@ class OhemCrossEntropy(nn.Module):
 
     def _forward(self, preds: Tensor, labels: Tensor) -> Tensor:
         # preds in shape [B, C, H, W] and labels in shape [B, H, W]
+        preds = preds.float()
         valid_mask = (labels != self.ignore_label)
         n_valid = valid_mask.sum().item()
         if n_valid == 0:

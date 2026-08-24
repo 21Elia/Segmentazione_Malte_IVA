@@ -60,11 +60,16 @@ class MORTARS(Dataset):
         self.ignore_label = 3
 
         # --------------------------------------------------
-        # 1. carico TUTTI i file dal dataset unico
+        # 1. carico TUTTI i file dal dataset unico (escludendo Sezione 5)
         # --------------------------------------------------
         all_files = sorted(
             glob.glob(os.path.join(root, modals[0], '*.tif'))
         )
+        # Escludi le patch della Sezione 5 (come nel dataset Notari 2classes_no5)
+        all_files = [
+            f for f in all_files
+            if not (os.path.basename(f).startswith(('sec5_', 'sec05_')) or '_sec5_' in os.path.basename(f))
+        ]
 
         if not all_files:
             raise RuntimeError(f"No images found in {os.path.join(root, modals[0])}")
@@ -149,5 +154,7 @@ if __name__ == '__main__':
     trainset = MORTARS(num_classes = num_classes, transform=traintransform, split='train')
     trainloader = DataLoader(trainset, batch_size=2, num_workers=2, drop_last=False, pin_memory=False)
 
-    for i, (sample, lbl) in enumerate(trainloader):
+    for i, (sample, lbl, fname) in enumerate(trainloader):
         print(torch.unique(lbl))
+        if i >= 2:
+            break
