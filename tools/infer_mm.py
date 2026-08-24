@@ -1,3 +1,6 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
 import argparse
 import yaml
@@ -5,7 +8,6 @@ from pathlib import Path
 from torchvision import io, transforms as T
 import torchvision.transforms.functional as TF
 from PIL import Image
-import os
 from semseg.utils.utils import timer
 from semseg.datasets import *
 from semseg.models import *

@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch 
 import argparse
 import yaml
@@ -328,8 +330,11 @@ if __name__ == '__main__':
     model = cfg['MODEL']['BACKBONE']
     # exp_name = '_'.join([cfg['DATASET']['NAME'], model, modals])
     exp_name = cfg['WANDB_NAME']
-    if cfg['USE_WANDB']:
-        wandb.init(project="MMSF-Mortars", entity="lnotari-universit-degli-studi-di-firenze", name=exp_name)
+    if cfg.get('USE_WANDB', False):
+        try:
+            wandb.init(project="MMSF-Mortars", name=exp_name)
+        except Exception as e:
+            print(f"Warning: wandb.init failed ({e}). Proceeding without wandb logging.", flush=True)
 
     save_dir = Path(cfg['SAVE_DIR'], exp_name)
     if os.path.isfile(cfg['MODEL']['RESUME']):
