@@ -84,7 +84,7 @@ def find_section_files(section_dir):
 
 def pad_image_to_size(img, target_h, target_w, fill_value=0):
     """
-    Pads bottom and right borders of an image up to target_h, target_w.
+    Pads image to target_h, target_w using centered padding (matching Notari's pad_image method).
     """
     h, w = img.shape[:2]
     pad_h = max(0, target_h - h)
@@ -93,10 +93,15 @@ def pad_image_to_size(img, target_h, target_w, fill_value=0):
     if pad_h == 0 and pad_w == 0:
         return img
 
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
+    pad_left = pad_w // 2
+    pad_right = pad_w - pad_left
+
     if len(img.shape) == 3:
-        padding = ((0, pad_h), (0, pad_w), (0, 0))
+        padding = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
     else:
-        padding = ((0, pad_h), (0, pad_w))
+        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
 
     return np.pad(img, padding, mode='constant', constant_values=fill_value)
 
@@ -197,14 +202,19 @@ def align_and_build_gt(img1_patch, img2_patch, porosity_patch, aggregate_patch, 
     gt_crop[crop_porosity > 127] = 1                      # 1 = Porosity
     gt_crop[crop_aggregate > 127] = 2                     # 2 = Aggregates (overwrites porosity in case of overlap)
 
-    # Pad back to exact patch_size x patch_size
-    pad_bottom = patch_size - crop_h
-    pad_right = patch_size - crop_w
+    # Pad back to exact patch_size x patch_size using CENTERED padding (matching Notari's pad_image)
+    pad_h = max(0, patch_size - crop_h)
+    pad_w = max(0, patch_size - crop_w)
 
-    if pad_bottom > 0 or pad_right > 0:
-        padded_img1 = np.pad(crop1, ((0, pad_bottom), (0, pad_right), (0, 0)), mode='constant', constant_values=0)
-        padded_img2 = np.pad(crop2, ((0, pad_bottom), (0, pad_right), (0, 0)), mode='constant', constant_values=0)
-        padded_gt = np.pad(gt_crop, ((0, pad_bottom), (0, pad_right)), mode='constant', constant_values=3)  # 3 = Ignore label
+    if pad_h > 0 or pad_w > 0:
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+
+        padded_img1 = np.pad(crop1, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
+        padded_img2 = np.pad(crop2, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
+        padded_gt = np.pad(gt_crop, ((pad_top, pad_bottom), (pad_left, pad_right)), mode='constant', constant_values=3)  # 3 = Ignore label
     else:
         padded_img1 = crop1
         padded_img2 = crop2

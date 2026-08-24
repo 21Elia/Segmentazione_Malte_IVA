@@ -72,7 +72,7 @@ def get_new_image_pairs(nuove_img_dir, masks_dir):
 
 def pad_image_to_size(img, target_h, target_w, fill_value=0):
     """
-    Pads bottom and right borders of an image up to target_h, target_w.
+    Pads image to target_h, target_w using centered padding (matching Notari's pad_image method).
     """
     h, w = img.shape[:2]
     pad_h = max(0, target_h - h)
@@ -81,10 +81,15 @@ def pad_image_to_size(img, target_h, target_w, fill_value=0):
     if pad_h == 0 and pad_w == 0:
         return img
 
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
+    pad_left = pad_w // 2
+    pad_right = pad_w - pad_left
+
     if len(img.shape) == 3:
-        padding = ((0, pad_h), (0, pad_w), (0, 0))
+        padding = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
     else:
-        padding = ((0, pad_h), (0, pad_w))
+        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
 
     return np.pad(img, padding, mode='constant', constant_values=fill_value)
 
@@ -160,12 +165,17 @@ def align_patch_pair(p_np, p_nx, patch_size=512, max_shift=50):
     crop_nx = p_nx[nx_top:nx_bottom, nx_left:nx_right]
 
     crop_h, crop_w = crop_np.shape[:2]
-    pad_bottom = patch_size - crop_h
-    pad_right = patch_size - crop_w
+    pad_h = max(0, patch_size - crop_h)
+    pad_w = max(0, patch_size - crop_w)
 
-    if pad_bottom > 0 or pad_right > 0:
-        out_np = np.pad(crop_np, ((0, pad_bottom), (0, pad_right), (0, 0)), mode='constant', constant_values=0)
-        out_nx = np.pad(crop_nx, ((0, pad_bottom), (0, pad_right), (0, 0)), mode='constant', constant_values=0)
+    if pad_h > 0 or pad_w > 0:
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+
+        out_np = np.pad(crop_np, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
+        out_nx = np.pad(crop_nx, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
     else:
         out_np = crop_np
         out_nx = crop_nx
