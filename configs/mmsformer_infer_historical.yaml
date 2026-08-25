@@ -1,0 +1,27 @@
+DEVICE          : cuda                        # device used for evaluation
+SAVE_DIR        : 'output/inference_historical'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : ''
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars'
+  IGNORE_LABEL  : 3
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2
+
+EVAL:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/inference_historical'
+  FILE          : 'data/mortars'
+  OVERLAY       : false   # false per ottenere mappe a colori puri (verde/nero) come 1_SCALA

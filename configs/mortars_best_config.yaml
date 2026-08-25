@@ -49,11 +49,11 @@ SCHEDULER:
   
 
 EVAL:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch100_77.81.pth'                  # Path to your saved model
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'                  # Path to your saved model
   IMAGE_SIZE    : [512, 512]                              # evaluation image size in (h, w)                       
   BATCH_SIZE    : 1                                     # batch size
   SAVE_PREDICTIONS : true
-  ERROR_THRESHOLD: 0.20
+  ERROR_THRESHOLD: -1.0
   SAVE_CONFUSION: True
   VIS_SAVE_DIR  : 'data/mortars_results'                      # Where to save visualization
   CONFUSION_DIR : 'data/confusion_matrix'
@@ -64,7 +64,7 @@ EVAL:
 
 
 TEST:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch100_77.81.pth'                  # Path to your saved model
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'                  # Path to your saved model
   IMAGE_SIZE    : [512, 512]                              # evaluation image size in (h, w)                       
   VIS_SAVE_DIR  : 'infer_results'                      # Where to save visualization
   FILE          : '/home/leonardonotari/elabIVA/infer_dataset'
