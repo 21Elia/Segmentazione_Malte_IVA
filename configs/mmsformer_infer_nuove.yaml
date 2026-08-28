@@ -17,13 +17,15 @@ DATASET:
   NUM_CLASSES   : 2
 
 EVAL:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP2-PHOTO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch50_78.41.pth'
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
 
 TEST:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP2-PHOTO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch50_78.41.pth'
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/inference_nuove/UNITO_B'
+  VIS_SAVE_DIR  : 'output/inference_nuove_exp2/UNITO_B'
   FILE          : 'data/nuove_patches/UNITO_B'
   OVERLAY       : false
+  INVERT_PALETTE: true # true per ottenere aggregati verdi e legante nero
+

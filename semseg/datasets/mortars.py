@@ -38,8 +38,8 @@ class MORTARS(Dataset):
         if num_classes == 2 :
             self.CLASSES = ["Legante", "Aggregati"]
             self.PALETTE = torch.tensor([
-                [0, 0, 0],  #legante nero
-                [0, 255, 0]  #aggregati verdi
+                [0, 0, 0],    # legante nero (classe 0)
+                [0, 255, 0]   # aggregati verdi (classe 1)
             ])
         else:
             self.CLASSES = ["Legante", "Porosità", "Aggregati"]
@@ -124,9 +124,6 @@ class MORTARS(Dataset):
         label[label == 255] = self.ignore_label
 
         sample['mask'] = label
-
-        # aggiungo chiave 'img' per compatibilità con il transform
-        sample['img'] = sample[self.modals[0]]
 
         if self.transform:
             sample = self.transform(sample)

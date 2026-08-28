@@ -275,31 +275,22 @@ def complete_output_dir(): #associa ogni predizione alle relative immagini e lab
     common_file = predictions & labels & incrociati & paralleli
     print(f"Found {len(common_file)} complete set.")
 
-    # Mappa colori
-    color_map = {
-        0: (0, 0, 0),   #legante nero
-        1: (255, 0, 0), #porosità rosso
-        2: (0, 255, 0), #aggregati verdi
-        3: (0, 0, 255), #ignore blu
-    }
+    # Instanzia il dataset per usare la palette e la label_mapping esatte
+    dataset_dummy = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], 'val', None, cfg['DATASET']['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
+    palette = dataset_dummy.PALETTE.cpu().numpy()
 
     for name in common_file:
-        #label
         label_path = os.path.join(labels_dir, name+".tif")
         label_img = Image.open(label_path).convert("L")  
         label_array = np.array(label_img)
-        if cfg['DATASET']['NUM_CLASSES'] == 2:
-            mapping = np.array([0, 0, 2, 3])  #rimappo la porosità
-            label_array = mapping[label_array]
+        label_tensor = torch.from_numpy(label_array).long()
+        label_mapped = dataset_dummy.label_mapping[label_tensor].numpy()
 
-
-        color_label = np.zeros((label_array.shape[0], label_array.shape[1], 3), dtype=np.uint8)
+        color_label = np.zeros((label_mapped.shape[0], label_mapped.shape[1], 3), dtype=np.uint8)
         
-        for val, color in color_map.items():
-            mask = label_array == val
-            color_label[mask, 0] = color[0]
-            color_label[mask, 1] = color[1]
-            color_label[mask, 2] = color[2]
+        for cls_id, color in enumerate(palette):
+            mask = (label_mapped == cls_id)
+            color_label[mask] = color
 
         color_label_img = Image.fromarray(color_label)
         color_label_img.save(os.path.join(predictions_dir, f"{name}_3label.tif"))
@@ -319,7 +310,8 @@ def complete_output_dir(): #associa ogni predizione alle relative immagini e lab
 def main(cfg):
     device = torch.device(cfg['DEVICE'])
     eval_cfg = cfg['EVAL']
-    transform = get_val_augmentation(eval_cfg['IMAGE_SIZE'])
+    aug_version = cfg['TRAIN'].get('AUGMENTATION', 'v1') if 'TRAIN' in cfg else cfg.get('AUGMENTATION', 'v1')
+    transform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], aug_version=aug_version)
     cases = [None] 
     
     model_path = Path(eval_cfg['MODEL_PATH'])
@@ -336,7 +328,14 @@ def main(cfg):
         dataset = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], 'test', transform, cfg['DATASET']['MODALS'], case, num_classes=cfg['DATASET']['NUM_CLASSES'])
 
         model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], dataset.n_classes, cfg['DATASET']['MODALS'])
-        msg = model.load_state_dict(torch.load(str(model_path), map_location='cpu'))
+        checkpoint = torch.load(str(model_path), map_location='cpu')
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
+        if any(k.startswith("module.") for k in state_dict.keys()):
+            state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+        msg = model.load_state_dict(state_dict)
         print(msg)
         model = model.to(device)
         sampler_val = None

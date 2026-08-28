@@ -27,23 +27,44 @@ class SemSeg:
             modals=cfg['DATASET']['MODALS'],
             num_classes=cfg['DATASET']['NUM_CLASSES']
         )
-        self.palette = dataset.PALETTE
+        if cfg.get('TEST', {}).get('INVERT_PALETTE', False):
+            self.palette = dataset.PALETTE.flip(0)
+        elif 'PALETTE' in cfg.get('TEST', {}):
+            self.palette = torch.tensor(cfg['TEST']['PALETTE'])
+        else:
+            self.palette = dataset.PALETTE
         self.labels = dataset.CLASSES
 
         # initialize the model and load weights
         self.model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], len(self.palette), cfg['DATASET']['MODALS'])
-        msg = self.model.load_state_dict(torch.load(cfg['EVAL']['MODEL_PATH'], map_location='cpu'))
+        checkpoint = torch.load(cfg['EVAL']['MODEL_PATH'], map_location='cpu')
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
+        if any(k.startswith("module.") for k in state_dict.keys()):
+            state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+        msg = self.model.load_state_dict(state_dict)
         print(msg)
         self.model = self.model.to(self.device)
         self.model.eval()
 
         # preprocessing
         self.size = cfg['TEST']['IMAGE_SIZE']
-        self.tf_pipeline_modal = T.Compose([
-            T.Resize(self.size),
-            T.Lambda(lambda x: x / 255),
-            T.Lambda(lambda x: x.unsqueeze(0))
-        ])
+        aug_version = cfg['TRAIN'].get('AUGMENTATION', 'v1') if 'TRAIN' in cfg else cfg.get('AUGMENTATION', 'v1')
+        if aug_version == 'exp2':
+            self.tf_pipeline_modal = T.Compose([
+                T.Resize(self.size),
+                T.Lambda(lambda x: x / 255),
+                T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+                T.Lambda(lambda x: x.unsqueeze(0))
+            ])
+        else:
+            self.tf_pipeline_modal = T.Compose([
+                T.Resize(self.size),
+                T.Lambda(lambda x: x / 255),
+                T.Lambda(lambda x: x.unsqueeze(0))
+            ])
 
     '''def _open_img(self, file):
         # legge immagini e gestisce canali

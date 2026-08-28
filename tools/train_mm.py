@@ -17,7 +17,7 @@ from torch.utils.data import DistributedSampler, RandomSampler, WeightedRandomSa
 from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
-from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation
+from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
@@ -95,7 +95,16 @@ def main(cfg, save_dir):
     # gpus = int(os.environ['WORLD_SIZE'])
 
     # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
-    traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+    aug_version = train_cfg.get('AUGMENTATION', 'v1')
+    if aug_version == 'exp2':
+        traintransform = get_train_augmentation_exp2(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        logger.info(f'Using augmentation pipeline: exp2 (synchronous photometric + geometric augmentation)')
+    elif aug_version == 'exp1':
+        traintransform = get_train_augmentation_exp1(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        logger.info(f'Using augmentation pipeline: exp1 (geometric augmentation)')
+    else:
+        traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        logger.info(f'Using augmentation pipeline: v1 (baseline)')
     valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'])
 
     trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'train', traintransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
@@ -113,7 +122,29 @@ def main(cfg, save_dir):
         msg = model.load_state_dict(state_dict)
         logger.info(msg)
     else:
-        model.init_pretrained(model_cfg['PRETRAINED'])
+        # Carica i pesi pre-trained. Determina se il file contiene solo i pesi
+        # del backbone (es. mit_b3.pth) o l'intero modello (es. epoch81_79.51.pth)
+        pretrained_path = model_cfg['PRETRAINED']
+        if os.path.isfile(pretrained_path):
+            pretrained_state = torch.load(pretrained_path, map_location=torch.device('cpu'))
+            if 'state_dict' in pretrained_state:
+                pretrained_state = pretrained_state['state_dict']
+            if 'model' in pretrained_state:
+                pretrained_state = pretrained_state['model']
+            # Verifica se contiene chiavi del decode_head (= modello intero)
+            has_decode_head = any('decode_head' in k for k in pretrained_state.keys())
+            if has_decode_head:
+                # Caricamento modello intero (fine-tuning da checkpoint completo)
+                msg = model.load_state_dict(pretrained_state, strict=False)
+                logger.info(f'Loaded FULL model from {pretrained_path}')
+                logger.info(msg)
+            else:
+                # Caricamento solo backbone (pre-training da ImageNet)
+                model.init_pretrained(pretrained_path)
+                logger.info(f'Loaded backbone from {pretrained_path}')
+            del pretrained_state
+        else:
+            logger.warning(f'Pretrained file not found: {pretrained_path}. Training from scratch.')
     
     model = torch.nn.DataParallel(model, device_ids=cfg['GPU_IDs'])
     model = model.to(device)

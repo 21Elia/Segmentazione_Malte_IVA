@@ -25,3 +25,4 @@ TEST:
   VIS_SAVE_DIR  : 'output/inference_historical'
   FILE          : 'data/mortars'
   OVERLAY       : false   # false per ottenere mappe a colori puri (verde/nero) come 1_SCALA
+  INVERT_PALETTE: true # true per ottenere aggregati verdi e legante nero

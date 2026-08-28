@@ -1,0 +1,67 @@
+DEVICE          : cuda                        # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
+SAVE_DIR        : 'output/MMSFormer'          # output folder name used for saving the model, logs and inference results
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-EXP2-PHOTO-AUG'       # nome dell'esperimento 2
+
+MODEL:
+  NAME          : MMSFormer                                         
+  BACKBONE      : MMSFormer-B3                                      
+  PRETRAINED    : 'output/MMSFormer/MMSF-EXP1-GEO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch48_80.61.pth'     # pesi record dell'Esperimento 1 (80.61% mIoU)
+  RESUME        : ''                                                # vuoto: NON ripristina optimizer/scheduler (fine-tuning, non resume)
+
+DATASET:
+  NAME          : MORTARS                                           
+  ROOT          : 'data/mortars'                                    
+  IGNORE_LABEL  : 3       
+  MODALS        : ['paralleli', 'incrociati']     
+  NUM_CLASSES   : 2       
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]      
+  BATCH_SIZE    : 4               
+  EPOCHS        : 50              # 50 epoche di fine-tuning
+  EVAL_START    : 0               
+  EVAL_INTERVAL : 1               # valutazione ad ogni epoca per non perdere il picco
+  AMP           : false           # stabilità 32-bit dell'OhemCrossEntropy
+  DDP           : false           
+  WEIGHTED_RANDOM_SAMPLER : false
+  AUGMENTATION  : 'exp2'          # seleziona la pipeline get_train_augmentation_exp2
+
+LOSS:
+  NAME          : OhemCrossEntropy 
+  CLS_WEIGHTS   : false            
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5] 
+
+OPTIMIZER:
+  NAME          : adamw           
+  LR            : 0.00003         # LR ridotto (3e-5) per fine-tuning
+  WEIGHT_DECAY  : 0.01            # weight decay ridotto per fine-tuning
+
+SCHEDULER:
+  NAME          : warmuppolylr    
+  POWER         : 0.9             
+  WARMUP        : 5               # warmup breve (5 epoche)
+  WARMUP_RATIO  : 0.1             
+
+EVAL:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP2-PHOTO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch50_78.41.pth'             
+  IMAGE_SIZE    : [512, 512]                              
+  BATCH_SIZE    : 1                                     
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD: -1.0
+  SAVE_CONFUSION: true
+  VIS_SAVE_DIR  : 'data/mortars_results_exp2'                      
+  CONFUSION_DIR : 'data/confusion_matrix_exp2'
+  MSF:  
+    ENABLE      : false                                   
+    FLIP        : true                                    
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]       
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP2-PHOTO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch50_78.41.pth'
+  IMAGE_SIZE    : [512, 512]                              
+  VIS_SAVE_DIR  : 'infer_results_exp2'                      
+  FILE          : 'data/mortars'
+  OVERLAY       : true
