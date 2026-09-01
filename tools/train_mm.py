@@ -17,7 +17,7 @@ from torch.utils.data import DistributedSampler, RandomSampler, WeightedRandomSa
 from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
-from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2
+from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
@@ -39,7 +39,7 @@ def compute_sample_weights(dataset, ignore_label):
     verbose=True 
 
     n_classes = dataset.n_classes
-    class_pixel_counts = torch.zeros(n_classes, dtype=torch.float) # tensore di zeri per contare i pixel di ogni classe in tutto il dataset
+    class_pixel_counts = torch.zeros(n_classes, dtype=torch.float) # tensore di zeri per contare i pixel di ogni classe in tutto il dataset
     sample_classes = [] # lista per salvare quali classi compaiono in ciascun campione
 
     iterator = dataset
@@ -96,7 +96,10 @@ def main(cfg, save_dir):
 
     # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
     aug_version = train_cfg.get('AUGMENTATION', 'v1')
-    if aug_version == 'exp2':
+    if aug_version in ['exp3', 'v2_soft']:
+        traintransform = get_train_augmentation_exp3(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        logger.info(f'Using augmentation pipeline: exp3 / v2_soft (soft synchronous photometric + geometric augmentation)')
+    elif aug_version == 'exp2':
         traintransform = get_train_augmentation_exp2(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
         logger.info(f'Using augmentation pipeline: exp2 (synchronous photometric + geometric augmentation)')
     elif aug_version == 'exp1':
@@ -105,7 +108,7 @@ def main(cfg, save_dir):
     else:
         traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
         logger.info(f'Using augmentation pipeline: v1 (baseline)')
-    valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'])
+    valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], aug_version=aug_version)
 
     trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'train', traintransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
     valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'val', valtransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])

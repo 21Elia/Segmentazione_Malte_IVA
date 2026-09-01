@@ -17,7 +17,11 @@ import glob
 class SemSeg:
     def __init__(self, cfg) -> None:
         # inference device
-        self.device = torch.device(cfg['DEVICE'])
+        device_str = cfg.get('DEVICE', 'cpu')
+        if not torch.cuda.is_available() and 'cuda' in str(device_str).lower():
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(device_str)
 
         # get dataset classes' colors and labels
         dataset_class = eval(cfg['DATASET']['NAME'])
@@ -52,7 +56,7 @@ class SemSeg:
         # preprocessing
         self.size = cfg['TEST']['IMAGE_SIZE']
         aug_version = cfg['TRAIN'].get('AUGMENTATION', 'v1') if 'TRAIN' in cfg else cfg.get('AUGMENTATION', 'v1')
-        if aug_version == 'exp2':
+        if aug_version in ['exp2', 'exp3', 'v2_soft']:
             self.tf_pipeline_modal = T.Compose([
                 T.Resize(self.size),
                 T.Lambda(lambda x: x / 255),
@@ -81,20 +85,27 @@ class SemSeg:
         img = TF.to_tensor(pil_img) * 255          # torchvision tensors aspettano [0,255]
         return img.to(torch.uint8)
 
-    def postprocess(self, orig_img: Tensor, seg_map: Tensor, overlay: bool) -> Tensor:
+    def postprocess(self, orig_img: Tensor, seg_map: Tensor) -> tuple:
         seg_map = seg_map.softmax(dim=1).argmax(dim=1).cpu().to(int)
-        seg_image = self.palette[seg_map].squeeze()
-        if overlay: 
-            seg_image = (orig_img.permute(1, 2, 0) * 0.6) + (seg_image * 0.4)
-        image = seg_image.to(torch.uint8)
-        return Image.fromarray(image.numpy())
+        palette_seg = self.palette[seg_map].squeeze()
+        
+        # 1. Pure palette mask (Green=Aggregates, Black=Binder)
+        mask_np = palette_seg.to(torch.uint8).numpy()
+        mask_pil = Image.fromarray(mask_np)
+
+        # 2. Blended patch overlay (60% parallel image + 40% prediction palette)
+        orig_hwc = orig_img.permute(1, 2, 0).float()
+        overlay_np = (orig_hwc * 0.6 + palette_seg.float() * 0.4).to(torch.uint8).numpy()
+        overlay_pil = Image.fromarray(overlay_np)
+
+        return mask_pil, overlay_pil
 
     @torch.inference_mode()
     @timer
     def model_forward(self, imgs):
         return self.model(imgs)
 
-    def predict(self, img_fname: str, overlay: bool) -> Tensor:
+    def predict(self, img_fname: str, overlay: bool = False) -> tuple:
         # due modali: paralleli + incrociati
         x1_path = img_fname
         x2_path = img_fname.replace('paralleli', 'incrociati')
@@ -104,8 +115,8 @@ class SemSeg:
 
         sample = [img1, img2]
         seg_map = self.model_forward(sample)
-        seg_map = self.postprocess(self._open_img(img_fname), seg_map, overlay)
-        return seg_map
+        orig_img = self._open_img(img_fname)
+        return self.postprocess(orig_img, seg_map)
 
 
 if __name__ == '__main__':
@@ -121,13 +132,21 @@ if __name__ == '__main__':
 
     modals_name = ''.join([m[0] for m in cfg['DATASET']['MODALS']])
     save_dir = Path(cfg['TEST']['VIS_SAVE_DIR'])/(cfg['MODEL']['BACKBONE'])
+    
+    masks_dir = save_dir / 'masks'
+    overlays_dir = save_dir / 'overlays'
     os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(masks_dir, exist_ok=True)
+    os.makedirs(overlays_dir, exist_ok=True)
 
     semseg = SemSeg(cfg)
 
     if test_file.is_file():
-        segmap = semseg.predict(str(test_file), cfg['TEST']['OVERLAY'])
-        segmap.save(save_dir / f"{test_file.stem}.png")
+        mask_img, overlay_img = semseg.predict(str(test_file))
+        mask_img.save(masks_dir / f"{test_file.stem}.png")
+        overlay_img.save(overlays_dir / f"{test_file.stem}.png")
+        print(f"Saved mask to: {masks_dir / f'{test_file.stem}.png'}")
+        print(f"Saved overlay patch to: {overlays_dir / f'{test_file.stem}.png'}")
     else:
         if cfg['DATASET']['NAME'] == 'MORTARS':
             # cerca tutte le TIFF in paralleli/ (sottocartelle opzionali)
@@ -135,9 +154,20 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError()
 
+        print(f"Running inference on {len(files)} patch pairs from: {test_file}")
         for file in files:
-            segmap = semseg.predict(file, cfg['TEST']['OVERLAY'])
+            mask_img, overlay_img = semseg.predict(file)
             filename = os.path.basename(file).replace('.tif', '.png')
-            save_path = save_dir / filename
-            segmap.save(save_path) 
+            
+            # Save mask inside masks/ folder only
+            mask_img.save(masks_dir / filename)
+            
+            # Save semi-transparent overlay inside overlays/ folder only
+            overlay_img.save(overlays_dir / filename)
+
+        print(f"\nInference complete!")
+        print(f" - Clean Masks saved to    : {masks_dir}")
+        print(f" - Patch Overlays saved to : {overlays_dir}")
+
+ 
             

@@ -68,17 +68,25 @@ def reconstruct_section(metadata_path, pred_dir, output_path, bg_color=(0, 0, 0)
         pred_path = os.path.join(pred_dir, filename_png)
 
         if not os.path.exists(pred_path):
-            # Fallback to search subdirectories (e.g. MMSFormer-B3) or original .tif filename
-            sub_matches = glob.glob(os.path.join(pred_dir, '**', filename_png), recursive=True)
-            if not sub_matches:
-                sub_matches = glob.glob(os.path.join(pred_dir, '**', p['filename']), recursive=True)
-            if sub_matches:
-                pred_path = sub_matches[0]
-            elif os.path.exists(os.path.join(pred_dir, p['filename'])):
-                pred_path = os.path.join(pred_dir, p['filename'])
+            # Check masks/ subfolder first
+            masks_sub = os.path.join(pred_dir, 'masks', filename_png)
+            if os.path.exists(masks_sub):
+                pred_path = masks_sub
             else:
-                missing_count += 1
-                continue
+                # Fallback to search subdirectories (e.g. MMSFormer-B3) or original .tif filename
+                sub_matches = glob.glob(os.path.join(pred_dir, '**', 'masks', filename_png), recursive=True)
+                if not sub_matches:
+                    sub_matches = glob.glob(os.path.join(pred_dir, '**', filename_png), recursive=True)
+                if not sub_matches:
+                    sub_matches = glob.glob(os.path.join(pred_dir, '**', p['filename']), recursive=True)
+                if sub_matches:
+                    pred_path = sub_matches[0]
+                elif os.path.exists(os.path.join(pred_dir, p['filename'])):
+                    pred_path = os.path.join(pred_dir, p['filename'])
+                else:
+                    missing_count += 1
+                    continue
+
 
         pred_patch = cv2.imread(pred_path)
         if pred_patch is None:

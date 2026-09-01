@@ -295,7 +295,7 @@ class Scale01:
 
 
 def get_val_augmentation(size: Union[int, Tuple[int], List[int]], aug_version: str = 'v1'):
-    if aug_version == 'exp2':
+    if aug_version in ['exp2', 'exp3', 'v2_soft']:
         return Compose([
             Resize(size),
             Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
@@ -340,3 +340,28 @@ def get_train_augmentation_exp2(size: Union[int, Tuple[int], List[int]], seg_fil
         # --- Fase 3: Normalizzazione ImageNet ---
         Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
+
+
+def get_train_augmentation_exp3(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0):
+    """Esperimento 3: Data Augmentation Fotometrica/Radiometrica Soft Sincrona + Geometrica Exp.1.
+    Progettata per evitare l'over-regularization e ottimizzare l'inferenza zero-shot sulle Nuove Immagini (1_SCALA, UNITO_B).
+    """
+    return Compose([
+        # --- Fase 1: Trasformazioni Fotometriche/Radiometriche Soft Sincrone ---
+        RandomMultiModalColorJitter(brightness=0.15, contrast=0.15, saturation=0.10, hue=0.02, p=0.3),
+        RandomGammaCorrection(gamma_range=(0.9, 1.1), p=0.2),
+        RandomMultiModalGaussianBlur(kernel_size=(3, 3), sigma_range=(0.1, 1.0), p=0.1),
+
+        # --- Fase 2: Trasformazioni Geometriche Avanzate (dall'Esperimento 1 Record) ---
+        RandomHorizontalFlip(p=0.5),
+        RandomVerticalFlip(p=0.5),
+        RandomRotation90(p=0.5),
+        RandomRotation(degrees=15, p=0.2, seg_fill=seg_fill),
+        RandomResizedCrop(size, scale=(0.5, 2.0), seg_fill=seg_fill),
+
+        # --- Fase 3: Normalizzazione ImageNet ---
+        Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    ])
+
+
+get_train_augmentation_v2_soft = get_train_augmentation_exp3

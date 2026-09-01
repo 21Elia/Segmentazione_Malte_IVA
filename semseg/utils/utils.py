@@ -14,7 +14,10 @@ from torch import distributed as dist
 from tabulate import tabulate
 from semseg import models
 import logging
-from fvcore.nn import flop_count_table, FlopCountAnalysis
+try:
+    from fvcore.nn import flop_count_table, FlopCountAnalysis
+except ImportError:
+    flop_count_table, FlopCountAnalysis = None, None
 import datetime
 
 def fix_seeds(seed: int = 3407) -> None:
