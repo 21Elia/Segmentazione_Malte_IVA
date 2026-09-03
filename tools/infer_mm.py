@@ -41,7 +41,8 @@ class SemSeg:
 
         # initialize the model and load weights
         self.model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], len(self.palette), cfg['DATASET']['MODALS'])
-        checkpoint = torch.load(cfg['EVAL']['MODEL_PATH'], map_location='cpu')
+        model_path = cfg.get('EVAL', {}).get('MODEL_PATH') or cfg.get('TEST', {}).get('MODEL_PATH', '')
+        checkpoint = torch.load(model_path, map_location='cpu')
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             state_dict = checkpoint['model_state_dict']
         else:
@@ -55,8 +56,31 @@ class SemSeg:
 
         # preprocessing
         self.size = cfg['TEST']['IMAGE_SIZE']
-        aug_version = cfg['TRAIN'].get('AUGMENTATION', 'v1') if 'TRAIN' in cfg else cfg.get('AUGMENTATION', 'v1')
+        
+        # 1. Check explicit AUGMENTATION setting in config
+        aug_version = None
+        if 'AUGMENTATION' in cfg and cfg['AUGMENTATION']:
+            aug_version = str(cfg['AUGMENTATION']).lower().strip()
+        elif 'TRAIN' in cfg and 'AUGMENTATION' in cfg['TRAIN'] and cfg['TRAIN']['AUGMENTATION']:
+            aug_version = str(cfg['TRAIN']['AUGMENTATION']).lower().strip()
+        elif 'TEST' in cfg and 'AUGMENTATION' in cfg['TEST'] and cfg['TEST']['AUGMENTATION']:
+            aug_version = str(cfg['TEST']['AUGMENTATION']).lower().strip()
+
+        # 2. Auto-detect from checkpoint / model path if omitted or set to 'auto'
+        if not aug_version or aug_version == 'auto':
+            model_path_str = str(model_path).lower()
+            if any(k in model_path_str for k in ['exp3', 'soft', 'v2_soft', 'mmsf-exp3']):
+                aug_version = 'exp3'
+            elif any(k in model_path_str for k in ['exp2', 'photo', 'mmsf-exp2']):
+                aug_version = 'exp2'
+            else:
+                aug_version = 'v1'
+            print(f"[Preprocessing] Auto-detected normalization pipeline: '{aug_version}' ({model_path})")
+        else:
+            print(f"[Preprocessing] Using explicitly configured normalization pipeline: '{aug_version}'")
+
         if aug_version in ['exp2', 'exp3', 'v2_soft']:
+            print("[Preprocessing] Active pipeline: Resize -> Scale01 [0,1] -> Normalize(ImageNet mean/std)")
             self.tf_pipeline_modal = T.Compose([
                 T.Resize(self.size),
                 T.Lambda(lambda x: x / 255),
@@ -64,6 +88,7 @@ class SemSeg:
                 T.Lambda(lambda x: x.unsqueeze(0))
             ])
         else:
+            print("[Preprocessing] Active pipeline: Resize -> Scale01 [0,1]")
             self.tf_pipeline_modal = T.Compose([
                 T.Resize(self.size),
                 T.Lambda(lambda x: x / 255),

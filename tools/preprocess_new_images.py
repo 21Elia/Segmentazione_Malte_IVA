@@ -302,6 +302,7 @@ def main():
     parser.add_argument('--samples-dir', type=str, default='output/alignment_samples', help="Output directory for alignment samples")
     parser.add_argument('--patch-size', type=int, default=512, help="Patch size in pixels")
     parser.add_argument('--grid-size', type=int, default=512, help="Grid step in pixels")
+    parser.add_argument('--section', type=str, default=None, help="Filter to process only a specific section (e.g. 'UNITO_B' or '1_SCALA')")
     args = parser.parse_args()
 
     src_dir = os.path.abspath(args.src)
@@ -317,12 +318,20 @@ def main():
     print(f"Alignment Samples   : {samples_dir}", flush=True)
     print(f"Patch Size          : {args.patch_size}x{args.patch_size}", flush=True)
     print(f"Grid Size           : {args.grid_size}x{args.grid_size}", flush=True)
+    if args.section:
+        print(f"Target Section Filter: {args.section}", flush=True)
     print("=" * 70, flush=True)
 
     pairs = get_new_image_pairs(src_dir, masks_dir)
     if not pairs:
         print("Error: No matching NP, NX and validity_mask pairs found!", flush=True)
         sys.exit(1)
+
+    if args.section:
+        pairs = [p for p in pairs if p['name'].lower() == args.section.lower()]
+        if not pairs:
+            print(f"Error: Section '{args.section}' not found in available pairs! Available: {[p['name'] for p in get_new_image_pairs(src_dir, masks_dir)]}", flush=True)
+            sys.exit(1)
 
     print(f"Found {len(pairs)} section pair(s) to process:", flush=True)
     for p in pairs:

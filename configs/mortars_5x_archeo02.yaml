@@ -1,0 +1,31 @@
+DEVICE          : cuda                        # device used for evaluation (cpu, cuda, cuda0, cuda1, ...)
+SAVE_DIR        : 'output/inference_5x'       # output folder name
+GPUs            : 1
+GPU_IDs         : [0]
+AUGMENTATION    : 'auto'                      # 'auto' (detect from checkpoint), or explicit: 'v1', 'exp1', 'exp2', 'exp3'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : ''
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars'
+  IGNORE_LABEL  : 3
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2
+
+EVAL:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth'
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/inference_5x/ARCHEO_02'
+  FILE          : 'data/patches_5x/ARCHEO_02'
+  OVERLAY       : false
+  INVERT_PALETTE: true # true to obtain green aggregates [0, 255, 0] and black binder [0, 0, 0]
