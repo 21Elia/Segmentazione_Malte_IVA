@@ -136,10 +136,51 @@ def create_false_color_rgb(img_np, img_nx):
     return false_color
 
 
+def compute_global_shift(img_np, img_nx, max_dim=2048):
+    """
+    Computes global rigid translation (shift_y, shift_x) to register NP onto NX
+    using multi-scale Phase Cross-Correlation on downsampled previews.
+    """
+    h, w = img_np.shape[:2]
+    downscale = min(1.0, max_dim / max(h, w))
+
+    np_gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY) if len(img_np.shape) == 3 else img_np
+    nx_gray = cv2.cvtColor(img_nx, cv2.COLOR_BGR2GRAY) if len(img_nx.shape) == 3 else img_nx
+
+    small_np = cv2.resize(np_gray, (0, 0), fx=downscale, fy=downscale, interpolation=cv2.INTER_AREA)
+    small_nx = cv2.resize(nx_gray, (0, 0), fx=downscale, fy=downscale, interpolation=cv2.INTER_AREA)
+
+    min_h = min(small_np.shape[0], small_nx.shape[0])
+    min_w = min(small_np.shape[1], small_nx.shape[1])
+
+    try:
+        shift_values, error, _ = phase_cross_correlation(small_nx[:min_h, :min_w], small_np[:min_h, :min_w])
+        global_shift_y = int(round(shift_values[0] / downscale))
+        global_shift_x = int(round(shift_values[1] / downscale))
+    except Exception as e:
+        print(f"[Warning] Global phase cross-correlation failed: {e}. Defaulting to (0, 0).")
+        global_shift_y, global_shift_x = 0, 0
+
+    return global_shift_y, global_shift_x
+
+
+def apply_global_shift(img, shift_y, shift_x, fill_value=0):
+    """
+    Applies global rigid 2D translation to an image using warpAffine.
+    """
+    if shift_y == 0 and shift_x == 0:
+        return img
+    h, w = img.shape[:2]
+    M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+    shifted = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=fill_value)
+    return shifted
+
+
 def align_patch_pair(p_np, p_nx, patch_size=512, max_shift=50):
     """
     Aligns NP relative to NX patch using Phase Cross Correlation,
     crops the overlapping region, and restores 512x512 with symmetric zero padding.
+    Identical methodology to preprocess_new_images.py (1_SCALA and UNITO_B).
     """
     np_gray = cv2.cvtColor(p_np, cv2.COLOR_BGR2GRAY) if len(p_np.shape) == 3 else p_np
     nx_gray = cv2.cvtColor(p_nx, cv2.COLOR_BGR2GRAY) if len(p_nx.shape) == 3 else p_nx
@@ -153,7 +194,7 @@ def align_patch_pair(p_np, p_nx, patch_size=512, max_shift=50):
     shift_x_int = int(round(shift_x))
     shift_y_int = int(round(shift_y))
 
-    # Guard check for anomalous shifts
+    # Safety check for excessive shifts
     if abs(shift_x_int) > max_shift or abs(shift_y_int) > max_shift:
         shift_x_int, shift_y_int = 0, 0
 
@@ -227,6 +268,14 @@ def process_5x_section(pair_info, mask_path, dst_dir, samples_dir, scale=0.20, p
     img_nx = pad_image_to_size(img_nx, max_h, max_w, 0)
     img_mask = pad_image_to_size(img_mask, max_h, max_w, 255)
 
+    # 3. Global coarse co-registration between NP and NX
+    print("Computing global rigid alignment between NP and NX (Coarse stage)...", flush=True)
+    global_sy, global_sx = compute_global_shift(img_np, img_nx)
+    print(f"Global shift detected: delta_y = {global_sy:+d} px, delta_x = {global_sx:+d} px", flush=True)
+    if global_sy != 0 or global_sx != 0:
+        print(f"Applying global translation to NP image...", flush=True)
+        img_np = apply_global_shift(img_np, global_sy, global_sx, fill_value=0)
+
     dir_paralleli = os.path.join(dst_dir, 'paralleli')
     dir_incrociati = os.path.join(dst_dir, 'incrociati')
     os.makedirs(dir_paralleli, exist_ok=True)
@@ -245,6 +294,8 @@ def process_5x_section(pair_info, mask_path, dst_dir, samples_dir, scale=0.20, p
         'scale_factor': scale,
         'image_height': max_h,
         'image_width': max_w,
+        'global_shift_y': global_sy,
+        'global_shift_x': global_sx,
         'patch_size': patch_size,
         'grid_size': grid_size,
         'grid_rows': grid_rows,
