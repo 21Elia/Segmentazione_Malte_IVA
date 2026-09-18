@@ -2,6 +2,7 @@
 data/
 output/
 checkpoints/
+docs
 
 # Modelli e pesi AI
 *.pt
