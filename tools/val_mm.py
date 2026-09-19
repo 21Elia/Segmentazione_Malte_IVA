@@ -373,7 +373,7 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', type=str, default='configs/mcubes_rgbadn.yaml')
     args = parser.parse_args()
 
-    with open(args.cfg) as f:
+    with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
 
     setup_cudnn()

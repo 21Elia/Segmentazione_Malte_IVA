@@ -1,0 +1,86 @@
+DEVICE          : cuda                        # device used for training and evaluation (cpu, cuda, cuda0, cuda1, ...)
+SAVE_DIR        : 'output/MMSFormer'          # output folder name used for saving the model, logs and inference results
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-EXP4A-ASYM-PHOTO'   # Exp 4A: augmentation fotometrica disaccoppiata NP/NX
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  # Checkpoint di Exp 1 (Geo C4): Val mIoU 80.61% - il miglior punto di partenza.
+  # Si parte da qui invece che dalla Baseline Notari perche il vantaggio geometrico
+  # C4 (+1.1% mIoU) e gia acquisito nei pesi. L'Exp 4A aggiunge SOLO la fotometria
+  # disaccoppiata NP/NX come informazione genuinamente nuova.
+  PRETRAINED    : 'output/MMSFormer/MMSF-EXP1-GEO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch48_80.61.pth'
+  RESUME        : ''  # vuoto = fine-tuning puro (reset optimizer e scheduler)
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars'
+  IGNORE_LABEL  : 3       # 3 = padding / sfondo non annotato
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2       # 0=matrice legante, 1=aggregati
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 4
+  EPOCHS        : 40      # ridotto da 50: si parte gia in zona ottimale (Exp 1 converge a ep.48)
+  EVAL_START    : 0
+  EVAL_INTERVAL : 1       # valutazione ad ogni epoca per non perdere il picco
+  AMP           : false   # FP32: stabilita OhemCrossEntropy (underflow AMP gia risolto in M1)
+  DDP           : false
+  WEIGHTED_RANDOM_SAMPLER : false
+  # Pipeline exp4: geometrica sincrona C4 + fotometrica disaccoppiata NP (forte) / NX (conservativa).
+  # Parametri NP calibrati sui W1 della Milestone 6:
+  #   brightness +/-0.40  <- W1(V,NP) medio ~ 44 -> 44/128 ~ 0.34
+  #   saturation +/-0.45  <- W1(S,NP) max  = 59 -> 59/128 ~ 0.46
+  #   blur sigma<=1.74 px <- sigma_max = 2*sqrt(1-145/601) da Laplaciano UNITO_B NP
+  # Parametri NX conservativi: brightness +/-0.15, saturation +/-0.10, NO hue, NO blur.
+  AUGMENTATION  : 'exp4'
+
+LOSS:
+  NAME          : OhemCrossEntropy
+  CLS_WEIGHTS   : false
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5]   # invariati da Exp 1: sbilanciamento aggregati vs legante
+
+OPTIMIZER:
+  NAME          : adamw
+  # LR ridotto a 1e-5 (era 3e-5 in Exp 1/2/3).
+  # Motivazione: si parte dal checkpoint Exp 1, gia in zona ottimale dello spazio
+  # dei parametri. Un LR alto rischierebbe di dislocare i pesi dalla zona 80.61%
+  # con oscillazioni destabilizzanti. Aggiornamenti piu graduali assimilano la
+  # nuova informazione fotometrica senza sovrascrivere la conoscenza geometrica.
+  LR            : 0.00001
+  WEIGHT_DECAY  : 0.01
+
+SCHEDULER:
+  NAME          : warmuppolylr
+  POWER         : 0.9
+  # Warmup ridotto a 3 epoche (era 5).
+  # Con LR gia basso (1e-5), la perturbazione iniziale e contenuta: 5 epoche di
+  # warmup significherebbero sprecare >12% del budget totale (40 ep.) a LR molto
+  # basso. 3 epoche sono sufficienti per stabilizzare i gradienti sui nuovi input.
+  WARMUP        : 3
+  WARMUP_RATIO  : 0.1    # LR iniziale = 1e-5 * 0.1 = 1e-6 durante il warmup
+
+EVAL:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth'
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD  : -1.0
+  SAVE_CONFUSION   : true
+  VIS_SAVE_DIR     : 'data/mortars_results_exp4a'
+  CONFUSION_DIR    : 'data/confusion_matrix_exp4a'
+  MSF:
+    ENABLE      : false
+    FLIP        : true
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth'
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'infer_results_exp4a'
+  FILE          : 'data/mortars'
+  OVERLAY       : true

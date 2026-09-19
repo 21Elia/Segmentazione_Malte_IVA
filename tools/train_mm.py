@@ -17,7 +17,7 @@ from torch.utils.data import DistributedSampler, RandomSampler, WeightedRandomSa
 from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
-from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3
+from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3, get_train_augmentation_exp4
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
@@ -96,7 +96,10 @@ def main(cfg, save_dir):
 
     # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
     aug_version = train_cfg.get('AUGMENTATION', 'v1')
-    if aug_version in ['exp3', 'v2_soft']:
+    if aug_version == 'exp4':
+        traintransform = get_train_augmentation_exp4(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        logger.info('Using augmentation pipeline: exp4 (asymmetric NP/NX photometric + geometric C4)')
+    elif aug_version in ['exp3', 'v2_soft']:
         traintransform = get_train_augmentation_exp3(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
         logger.info(f'Using augmentation pipeline: exp3 / v2_soft (soft synchronous photometric + geometric augmentation)')
     elif aug_version == 'exp2':
@@ -352,7 +355,7 @@ if __name__ == '__main__':
 
     train_losses = [] # lista globale per l'andamento della loss a ogni epoca
 
-    with open(args.cfg) as f:
+    with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
 
     fix_seeds(3407)

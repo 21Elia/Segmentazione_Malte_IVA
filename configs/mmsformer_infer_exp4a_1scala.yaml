@@ -24,8 +24,7 @@ EVAL:
 TEST:
   MODEL_PATH    : 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth'
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/inference_nuove/UNITO_B'
-  FILE          : 'data/nuove_patches/UNITO_B'
+  VIS_SAVE_DIR  : 'output/inference_nuove/inference_nuove_exp4a/1_SCALA'
+  FILE          : 'data/nuove_patches/1_SCALA'
   OVERLAY       : false
   INVERT_PALETTE: true # true per ottenere aggregati verdi e legante nero
-

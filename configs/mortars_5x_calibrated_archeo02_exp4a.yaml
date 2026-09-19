@@ -1,7 +1,8 @@
 DEVICE          : cuda                        # device used for evaluation (cpu, cuda, cuda0, cuda1, ...)
-SAVE_DIR        : 'output/inference_nuove'     # output folder name
+SAVE_DIR        : 'output/inference_5x_calibrated' # output folder name
 GPUs            : 1
 GPU_IDs         : [0]
+AUGMENTATION    : 'exp4'                      # pipeline exp4: ImageNet normalize
 
 MODEL:
   NAME          : MMSFormer
@@ -11,7 +12,7 @@ MODEL:
 
 DATASET:
   NAME          : MORTARS
-  ROOT          : 'data/mortars'
+  ROOT          : 'data/patches_5x_scale=057/ARCHEO_02'
   IGNORE_LABEL  : 3
   MODALS        : ['paralleli', 'incrociati']
   NUM_CLASSES   : 2
@@ -24,8 +25,7 @@ EVAL:
 TEST:
   MODEL_PATH    : 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth'
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/inference_nuove/UNITO_B'
-  FILE          : 'data/nuove_patches/UNITO_B'
+  VIS_SAVE_DIR  : 'output/inference_5x/inference_5x_scale=057_exp4a/ARCHEO_02'
+  FILE          : 'data/patches_5x_scale=057/ARCHEO_02'
   OVERLAY       : false
-  INVERT_PALETTE: true # true per ottenere aggregati verdi e legante nero
-
+  INVERT_PALETTE: true # true to obtain green aggregates [0, 255, 0] and black binder [0, 0, 0]

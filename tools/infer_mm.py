@@ -69,7 +69,9 @@ class SemSeg:
         # 2. Auto-detect from checkpoint / model path if omitted or set to 'auto'
         if not aug_version or aug_version == 'auto':
             model_path_str = str(model_path).lower()
-            if any(k in model_path_str for k in ['exp3', 'soft', 'v2_soft', 'mmsf-exp3']):
+            if any(k in model_path_str for k in ['exp4', 'asym', 'mmsf-exp4']):
+                aug_version = 'exp4'
+            elif any(k in model_path_str for k in ['exp3', 'soft', 'v2_soft', 'mmsf-exp3']):
                 aug_version = 'exp3'
             elif any(k in model_path_str for k in ['exp2', 'photo', 'mmsf-exp2']):
                 aug_version = 'exp2'
@@ -79,7 +81,7 @@ class SemSeg:
         else:
             print(f"[Preprocessing] Using explicitly configured normalization pipeline: '{aug_version}'")
 
-        if aug_version in ['exp2', 'exp3', 'v2_soft']:
+        if aug_version in ['exp2', 'exp3', 'v2_soft', 'exp4']:
             print("[Preprocessing] Active pipeline: Resize -> Scale01 [0,1] -> Normalize(ImageNet mean/std)")
             self.tf_pipeline_modal = T.Compose([
                 T.Resize(self.size),
@@ -148,7 +150,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str)
     args = parser.parse_args()
-    with open(args.cfg) as f:
+    with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
 
     test_file = Path(cfg['TEST']['FILE'])
