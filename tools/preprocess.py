@@ -20,6 +20,11 @@ This script implements the preprocessing pipeline:
    - 1: Porosity
    - 2: Aggregates (resolving overlaps in favor of Aggregates)
    - 3: Ignore Label (for padding region resulting from alignment shift)
+
+Mask convention (DIA_FIRENZE): in AGGREGATE.tif and POROSITY.tif the class is drawn in
+BLACK on a white background, and in TOTAL.tif the valid mortar is BLACK. The historical
+masks are palette TIFFs whose index 255 is displayed black; cv2.IMREAD_GRAYSCALE applies
+the palette, so after loading every mask is "black (< 128) = class present".
 8. Save patches to:
    - dst_dir/paralleli/
    - dst_dir/incrociati/
@@ -143,10 +148,10 @@ def align_and_build_gt(img1_patch, img2_patch, porosity_patch, aggregate_patch, 
     and pads all arrays back to (patch_size, patch_size).
     Also generates pre and post false-color RGB previews for visualization.
     
-    GT Classes:
-      0: Binder (porosity == 0 and aggregate == 0)
-      1: Porosity (porosity > 127 and aggregate <= 127)
-      2: Aggregates (aggregate > 127, overwriting porosity on overlaps)
+    GT Classes (masks are black = class present, see module docstring):
+      0: Binder (neither porosity nor aggregate)
+      1: Porosity (porosity < 128 and aggregate >= 128)
+      2: Aggregates (aggregate < 128, overwriting porosity on overlaps)
       3: Ignore label (padding region)
     """
     # 1. False-color PRE-alignment preview
@@ -198,9 +203,11 @@ def align_and_build_gt(img1_patch, img2_patch, porosity_patch, aggregate_patch, 
     crop_h, crop_w = crop1.shape[:2]
 
     # Construct multiclass ground truth map on cropped region
+    # Classes are drawn in black: "< 128" selects the class pixels. The previous "> 127"
+    # selected the white background instead and swapped Binder and Aggregates.
     gt_crop = np.zeros((crop_h, crop_w), dtype=np.uint8)  # Default 0 = Binder
-    gt_crop[crop_porosity > 127] = 1                      # 1 = Porosity
-    gt_crop[crop_aggregate > 127] = 2                     # 2 = Aggregates (overwrites porosity in case of overlap)
+    gt_crop[crop_porosity < 128] = 1                      # 1 = Porosity
+    gt_crop[crop_aggregate < 128] = 2                     # 2 = Aggregates (overwrites porosity in case of overlap)
 
     # Pad back to exact patch_size x patch_size using CENTERED padding (matching Notari's pad_image)
     pad_h = max(0, patch_size - crop_h)
@@ -262,8 +269,9 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
     # Apply initial padding to full-resolution images if needed
     img_paralleli = pad_image_to_size(img_paralleli, max_h, max_w, 0)
     img_incrociati = pad_image_to_size(img_incrociati, max_h, max_w, 0)
-    img_aggregate = pad_image_to_size(img_aggregate, max_h, max_w, 0)
-    img_porosity = pad_image_to_size(img_porosity, max_h, max_w, 0)
+    # Pad masks with white (255 = class absent): black would mark the padding as class
+    img_aggregate = pad_image_to_size(img_aggregate, max_h, max_w, 255)
+    img_porosity = pad_image_to_size(img_porosity, max_h, max_w, 255)
 
     # If img_total was downsampled, upscale with INTER_NEAREST to match max_h, max_w 1:1
     if img_total.shape[:2] != (max_h, max_w):
@@ -290,6 +298,7 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
     print(f"Grid dimensions : {grid_rows} rows x {grid_cols} columns", flush=True)
 
     generated_patches = 0
+    class_counts = np.zeros(4, dtype=np.int64)  # sanity check: 0 binder, 1 porosity, 2 aggregates, 3 ignore
     grid_metadata = {
         'section_name': section_name,
         'image_height': max_h,
@@ -328,6 +337,7 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
                 cv2.imwrite(os.path.join(dir_paralleli, filename_tif), out_paralleli)
                 cv2.imwrite(os.path.join(dir_incrociati, filename_tif), out_incrociati)
                 cv2.imwrite(os.path.join(dir_label, filename_tif), out_label)
+                class_counts += np.bincount(out_label.ravel(), minlength=4)[:4]
 
                 grid_metadata['patches'].append({
                     'patch_id': generated_patches,
@@ -350,6 +360,13 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
         json.dump(grid_metadata, f, indent=2)
 
     print(f"Done section {section_name}: generated {generated_patches} valid patches.", flush=True)
+    labelled = class_counts[:3].sum()
+    if labelled > 0:
+        # Expected for historical mortars: binder is the majority, aggregates roughly 25-60%
+        print(f"[{section_name}] Class fractions (excluding ignore): "
+              f"binder {class_counts[0] / labelled * 100:.1f}% | "
+              f"porosity {class_counts[1] / labelled * 100:.1f}% | "
+              f"aggregates {class_counts[2] / labelled * 100:.1f}%", flush=True)
     print(f"Metadata saved to: {meta_path}", flush=True)
     print(f"Alignment samples saved to: {sec_samples_dir}", flush=True)
     return generated_patches
