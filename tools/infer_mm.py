@@ -107,14 +107,15 @@ class SemSeg:
             img = img.repeat(3, 1, 1)
         return img'''
     def _open_img(self, file):
-        # legge immagini TIFF con PIL e converte in tensor CxHxW
-        pil_img = Image.open(file).convert('RGB')  # forza 3 canali
-        img = TF.to_tensor(pil_img) * 255          # torchvision tensors aspettano [0,255]
+        # Open TIFF images with PIL and convert to CxHxW tensor
+        pil_img = Image.open(file).convert('RGB')  # enforce 3 channels
+        img = TF.to_tensor(pil_img) * 255          # torchvision tensors expect [0, 255]
         return img.to(torch.uint8)
 
-    def postprocess(self, orig_img: Tensor, seg_map: Tensor) -> tuple:
-        seg_map = seg_map.softmax(dim=1).argmax(dim=1).cpu().to(int)
-        palette_seg = self.palette[seg_map].squeeze()
+    def postprocess(self, orig_img: Tensor, seg_map: Tensor, return_softmax: bool = False) -> tuple:
+        probs = seg_map.softmax(dim=1)
+        pred_labels = probs.argmax(dim=1).cpu().to(int)
+        palette_seg = self.palette[pred_labels].squeeze()
         
         # 1. Pure palette mask (Green=Aggregates, Black=Binder)
         mask_np = palette_seg.to(torch.uint8).numpy()
@@ -125,6 +126,11 @@ class SemSeg:
         overlay_np = (orig_hwc * 0.6 + palette_seg.float() * 0.4).to(torch.uint8).numpy()
         overlay_pil = Image.fromarray(overlay_np)
 
+        if return_softmax:
+            # Save as float16 to halve disk usage (~1MB per 512x512 patch with 2 classes)
+            softmax_np = probs.squeeze(0).cpu().half().numpy()
+            return mask_pil, overlay_pil, softmax_np
+
         return mask_pil, overlay_pil
 
     @torch.inference_mode()
@@ -132,8 +138,8 @@ class SemSeg:
     def model_forward(self, imgs):
         return self.model(imgs)
 
-    def predict(self, img_fname: str, overlay: bool = False) -> tuple:
-        # due modali: paralleli + incrociati
+    def predict(self, img_fname: str, overlay: bool = False, return_softmax: bool = False) -> tuple:
+        # Dual modality: parallel (PPL) + crossed (XPL)
         x1_path = img_fname
         x2_path = img_fname.replace('paralleli', 'incrociati')
 
@@ -143,12 +149,14 @@ class SemSeg:
         sample = [img1, img2]
         seg_map = self.model_forward(sample)
         orig_img = self._open_img(img_fname)
-        return self.postprocess(orig_img, seg_map)
+        return self.postprocess(orig_img, seg_map, return_softmax=return_softmax)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str)
+    parser.add_argument('--save-softmax', action='store_true',
+                        help="Save softmax probabilities as .npy (float16) arrays for SE and VPT metrics")
     args = parser.parse_args()
     with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
@@ -156,6 +164,8 @@ if __name__ == '__main__':
     test_file = Path(cfg['TEST']['FILE'])
     if not test_file.exists():
         raise FileNotFoundError(test_file)
+
+    save_softmax = args.save_softmax or cfg.get('TEST', {}).get('SAVE_SOFTMAX', False)
 
     modals_name = ''.join([m[0] for m in cfg['DATASET']['MODALS']])
     save_dir = Path(cfg['TEST']['VIS_SAVE_DIR'])/(cfg['MODEL']['BACKBONE'])
@@ -166,25 +176,39 @@ if __name__ == '__main__':
     os.makedirs(masks_dir, exist_ok=True)
     os.makedirs(overlays_dir, exist_ok=True)
 
+    if save_softmax:
+        softmax_dir = save_dir / 'softmax'
+        os.makedirs(softmax_dir, exist_ok=True)
+        print(f"[Softmax] Enabled probability map saving in: {softmax_dir}")
+
     semseg = SemSeg(cfg)
 
     if test_file.is_file():
-        mask_img, overlay_img = semseg.predict(str(test_file))
+        if save_softmax:
+            mask_img, overlay_img, sm_arr = semseg.predict(str(test_file), return_softmax=True)
+            np.save(softmax_dir / f"{test_file.stem}.npy", sm_arr)
+            print(f"Saved softmax to: {softmax_dir / f'{test_file.stem}.npy'}")
+        else:
+            mask_img, overlay_img = semseg.predict(str(test_file))
         mask_img.save(masks_dir / f"{test_file.stem}.png")
         overlay_img.save(overlays_dir / f"{test_file.stem}.png")
         print(f"Saved mask to: {masks_dir / f'{test_file.stem}.png'}")
         print(f"Saved overlay patch to: {overlays_dir / f'{test_file.stem}.png'}")
     else:
         if cfg['DATASET']['NAME'] == 'MORTARS':
-            # cerca tutte le TIFF in paralleli/ (sottocartelle opzionali)
+            # Search for all TIFF files in paralleli/ (including optional subfolders)
             files = sorted(glob.glob(os.path.join(str(test_file), 'paralleli', '**', '*.tif'), recursive=True))
         else:
             raise NotImplementedError()
 
         print(f"Running inference on {len(files)} patch pairs from: {test_file}")
         for file in files:
-            mask_img, overlay_img = semseg.predict(file)
             filename = os.path.basename(file).replace('.tif', '.png')
+            if save_softmax:
+                mask_img, overlay_img, sm_arr = semseg.predict(file, return_softmax=True)
+                np.save(softmax_dir / filename.replace('.png', '.npy'), sm_arr)
+            else:
+                mask_img, overlay_img = semseg.predict(file)
             
             # Save mask inside masks/ folder only
             mask_img.save(masks_dir / filename)
@@ -195,6 +219,8 @@ if __name__ == '__main__':
         print(f"\nInference complete!")
         print(f" - Clean Masks saved to    : {masks_dir}")
         print(f" - Patch Overlays saved to : {overlays_dir}")
+        if save_softmax:
+            print(f" - Softmax Arrays saved to : {softmax_dir}")
 
  
             

@@ -80,19 +80,19 @@ def sliding_predict(model, image, num_classes, flip=True):
 
 
 @torch.no_grad()
-def save_confusion_matrix(): #crea immagine confusion matrix
+def save_confusion_matrix(): # Generates and saves confusion matrix plot
     cm_file = Path(cfg['EVAL']['CONFUSION_DIR'] + "/confusion_matrix.npy")
     cm = np.load(cm_file)
     
     if cfg['DATASET']['NUM_CLASSES'] == 3:
-        class_names = ["Legante", "Porosità", "Aggregati"] # se si considera la porosità
+        class_names = ["Legante", "Porosità", "Aggregati"] # If porosity is considered
     else:
         class_names = ["Legante", "Aggregati"] 
 
-    save_path= cfg['EVAL']['CONFUSION_DIR'] + "/confusion_matrix.png"
+    save_path = cfg['EVAL']['CONFUSION_DIR'] + "/confusion_matrix.png"
 
     cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-    cm = np.nan_to_num(cm)  # evita divisioni per zero
+    cm = np.nan_to_num(cm)  # Avoid division by zero
 
     plt.figure(figsize=(8, 8))
     plt.imshow(cm, cmap='Blues')
@@ -100,7 +100,7 @@ def save_confusion_matrix(): #crea immagine confusion matrix
     plt.xticks(range(len(class_names)), class_names, rotation=45)
     plt.yticks(range(len(class_names)), class_names)
 
-    # Scrivi i valori all'interno delle celle
+    # Annotate values inside matrix cells
     for i in range(len(class_names)):
         for j in range(len(class_names)):
             plt.text(j, i, f"{cm[i, j]:.2f}", ha='center', va='center', color='red')
@@ -148,19 +148,19 @@ def evaluate(model, dataloader, device, loss_fn=None, cfg=None):
         )
 
         metrics.update(preds.softmax(dim=1), labels)
-        if cfg is not None and cfg['EVAL']['VIS_SAVE_DIR'] and cfg['EVAL']['SAVE_PREDICTIONS']:#per salvare i risultati
+        if cfg is not None and cfg['EVAL']['VIS_SAVE_DIR'] and cfg['EVAL']['SAVE_PREDICTIONS']: # Save qualitative visualizations
             mask_valid = labels != dataloader.dataset.ignore_label
             wrong = (pred_labels != labels) & mask_valid
             error_rate = wrong.sum().float() / mask_valid.sum().float()
 
-            # Per calcolare la differenza assoluta di pixel classificati come aggregati tra predizione e label
+            # Compute absolute difference of aggregate-classified pixels between prediction and ground truth label
             num_ones_pred = ((pred_labels == 1) & mask_valid).sum().item()
             num_ones_label = ((labels == 1) & mask_valid).sum().item()
             diff = num_ones_label - num_ones_pred
-            # normalizzata
-            if diff<0:
-                diff = (-1)*diff
-            diff = diff/(512*512)
+            # Normalized difference
+            if diff < 0:
+                diff = (-1) * diff
+            diff = diff / (512 * 512)
 
             if error_rate > cfg['EVAL']['ERROR_THRESHOLD'] and diff < 1:
 
@@ -236,11 +236,11 @@ def evaluate_msf(model, dataloader, device, scales, flip):
 
 
 
-@torch.no_grad() #salva le mappe in output
+@torch.no_grad() # Save prediction maps to disk
 def save_pred_map(pred, save_path, palette):
     """
-    pred: tensor shape (H, W) con valori [0..num_classes]
-    palette: lista di tuple RGB per ogni classe
+    pred: tensor of shape (H, W) with class values [0..num_classes]
+    palette: list/tensor of RGB tuples for each class
     """
     pred_np = pred.cpu().numpy().astype(np.uint8)
     color_map = np.zeros((pred_np.shape[0], pred_np.shape[1], 3), dtype=np.uint8)
@@ -255,7 +255,7 @@ def save_pred_map(pred, save_path, palette):
 
 
 @torch.no_grad()
-def complete_output_dir(): #associa ogni predizione alle relative immagini e label
+def complete_output_dir(): # Associates predictions with corresponding input modalities and labels
     predictions_dir = cfg['EVAL']['VIS_SAVE_DIR']
     labels_dir = cfg['DATASET']['ROOT'] + "/label"
     incrociati_dir = cfg['DATASET']['ROOT'] + "/incrociati"
@@ -263,11 +263,6 @@ def complete_output_dir(): #associa ogni predizione alle relative immagini e lab
 
     est = (".png", ".tif")
 
-    # FUNZIONA CON I NOMI ASSEGNATI DAL MODELLO 
-    #predictions = {f[:-16] for f in os.listdir(predictions_dir) if f.lower().endswith(est)} 
-    #labels = {f[:-4] for f in os.listdir(labels_dir) if f.lower().endswith(est)}
-    #incrociati = {f[:-4] for f in os.listdir(incrociati_dir) if f.lower().endswith(est)}
-    #paralleli = {f[:-4] for f in os.listdir(paralleli_dir) if f.lower().endswith(est)}
     predictions = {f.split("_4prediction_")[0] for f in os.listdir(predictions_dir) if f.lower().endswith(est)} 
     labels = {f.split(".")[0] for f in os.listdir(labels_dir) if f.lower().endswith(est)}
     incrociati = {f.split(".")[0] for f in os.listdir(incrociati_dir) if f.lower().endswith(est)}
@@ -275,7 +270,7 @@ def complete_output_dir(): #associa ogni predizione alle relative immagini e lab
     common_file = predictions & labels & incrociati & paralleli
     print(f"Found {len(common_file)} complete set.")
 
-    # Instanzia il dataset per usare la palette e la label_mapping esatte
+    # Instantiate dataset to obtain exact palette and label mapping
     dataset_dummy = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], 'val', None, cfg['DATASET']['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
     palette = dataset_dummy.PALETTE.cpu().numpy()
 
@@ -295,7 +290,7 @@ def complete_output_dir(): #associa ogni predizione alle relative immagini e lab
         color_label_img = Image.fromarray(color_label)
         color_label_img.save(os.path.join(predictions_dir, f"{name}_3label.tif"))
         
-        # immagini nelle due modalità
+        # Save image files for both modalities
         shutil.copy(os.path.join(incrociati_dir, name+".tif"),
                     os.path.join(predictions_dir, f"{name}_1incrociati.tif"))
         shutil.copy(os.path.join(paralleli_dir, name+".tif"),
