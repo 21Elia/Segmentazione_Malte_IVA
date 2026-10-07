@@ -18,6 +18,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import gc
+from semseg.patch_geometry import paste_content
 import json
 import glob
 import argparse
@@ -106,31 +107,8 @@ def reconstruct_map(metadata_path: str, patch_dir: str, is_softmax: bool = True)
         else:
             patch_data = arr  # VPT map is already (H, W)
 
-        shift_y = p.get('shift_y', 0)
-        shift_x = p.get('shift_x', 0)
-        pad_h = abs(shift_y)
-        pad_w = abs(shift_x)
-
-        pad_top = pad_h // 2
-        pad_bottom = pad_h - pad_top
-        pad_left = pad_w // 2
-        pad_right = pad_w - pad_left
-
-        crop_y_end = patch_size - pad_bottom
-        crop_x_end = patch_size - pad_right
-
-        valid_crop = patch_data[pad_top:crop_y_end, pad_left:crop_x_end]
-
-        y_start = max(0, min(img_h, p['y'] + pad_top))
-        y_end = max(0, min(img_h, p['y'] + patch_size - pad_bottom))
-        x_start = max(0, min(img_w, p['x'] + pad_left))
-        x_end = max(0, min(img_w, p['x'] + patch_size - pad_right))
-
-        h_crop = y_end - y_start
-        w_crop = x_end - x_start
-
-        if h_crop > 0 and w_crop > 0:
-            canvas[y_start:y_end, x_start:x_end] = valid_crop[:h_crop, :w_crop]
+        # Real content pasted at its NP-frame position (semseg/patch_geometry.py)
+        if paste_content(canvas, patch_data, p, patch_size):
             reconstructed_count += 1
 
     return canvas, reconstructed_count, missing_count

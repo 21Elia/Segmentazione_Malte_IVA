@@ -49,7 +49,8 @@ class MORTARS(Dataset):
                 [0, 255, 0]  #aggregati verdi
             ])
 
-        assert split in ['train', 'val', 'test']
+        # 'all' = every patch, no split (e.g. out-of-domain patches with ground truth)
+        assert split in ['train', 'val', 'test', 'all']
         self.transform = transform
         self.modals = modals
         self.n_classes = len(self.CLASSES)  
@@ -77,6 +78,11 @@ class MORTARS(Dataset):
         # --------------------------------------------------
         # 2. split riproducibile
         # --------------------------------------------------
+        if split == 'all':
+            self.files = all_files
+            print(f"[MORTARS] all: {len(self.files)} samples")
+            return
+
         random.seed(seed)
         random.shuffle(all_files)
 

@@ -16,6 +16,9 @@ import numpy as np
 import cv2
 import glob
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.patch_geometry import paste_content
+
 
 def reconstruct_section(metadata_path, pred_dir, output_path, bg_color=(0, 0, 0),
                         bg_path=None, overlay_output=None, overlay_alpha=0.4):
@@ -94,42 +97,10 @@ def reconstruct_section(metadata_path, pred_dir, output_path, bg_color=(0, 0, 0)
             missing_count += 1
             continue
 
-        # Extract shift values
-        shift_y = p.get('shift_y', 0)
-        shift_x = p.get('shift_x', 0)
-
-        pad_h = abs(shift_y)
-        pad_w = abs(shift_x)
-
-        pad_top = pad_h // 2
-        pad_bottom = pad_h - pad_top
-        pad_left = pad_w // 2
-        pad_right = pad_w - pad_left
-
-        crop_y_end = patch_size - pad_bottom
-        crop_x_end = patch_size - pad_right
-
-        # Crop out the artificial zero-padding bands
-        valid_pred = pred_patch[pad_top:crop_y_end, pad_left:crop_x_end]
-
-        # Calculate exact target coordinates in the global canvas
-        y_start = p['y'] + pad_top
-        y_end = p['y'] + patch_size - pad_bottom
-        x_start = p['x'] + pad_left
-        x_end = p['x'] + patch_size - pad_right
-
-        # Safety boundary checks
-        y_start = max(0, min(img_h, y_start))
-        y_end = max(0, min(img_h, y_end))
-        x_start = max(0, min(img_w, x_start))
-        x_end = max(0, min(img_w, x_end))
-
-        # Insert crop into canvas
-        h_crop = y_end - y_start
-        w_crop = x_end - x_start
-
-        if h_crop > 0 and w_crop > 0:
-            canvas[y_start:y_end, x_start:x_end] = valid_pred[:h_crop, :w_crop]
+        # Paste the real content (alignment padding removed) at its NP-frame position.
+        # The previous version pasted it at (y + pad_top, x + pad_left), i.e. shifted by half
+        # the alignment shift with respect to the NP image (up to ~7 px on 1_SCALA).
+        if paste_content(canvas, pred_patch, p, patch_size):
             reconstructed_count += 1
 
     # Ensure output directory exists

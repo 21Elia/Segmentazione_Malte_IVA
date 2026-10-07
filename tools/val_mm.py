@@ -322,7 +322,7 @@ def main(cfg):
     for case in cases:
         #dataset = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], 'val', transform, cfg['DATASET']['MODALS'], case)
    
-        dataset = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], 'test', transform, cfg['DATASET']['MODALS'], case, num_classes=cfg['DATASET']['NUM_CLASSES'])
+        dataset = eval(cfg['DATASET']['NAME'])(cfg['DATASET']['ROOT'], cfg['EVAL'].get('SPLIT', 'test'), transform, cfg['DATASET']['MODALS'], case, num_classes=cfg['DATASET']['NUM_CLASSES'])
 
         model = eval(cfg['MODEL']['NAME'])(cfg['MODEL']['BACKBONE'], dataset.n_classes, cfg['DATASET']['MODALS'])
         checkpoint = torch.load(str(model_path), map_location='cpu')
@@ -354,6 +354,7 @@ def main(cfg):
 
         with open(eval_path, 'a+') as f:
             f.writelines(eval_cfg['MODEL_PATH'])
+            f.write(f"\nDataset: {cfg['DATASET']['ROOT']} | split: {cfg['EVAL'].get('SPLIT', 'test')} | normalization: {normalization}")
             f.write("\n============== Eval on {} {} images =================\n".format(case, len(dataset)))
             f.write("\n")
             print(tabulate(table, headers='keys'), file=f)
@@ -368,10 +369,25 @@ def main(cfg):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='configs/mcubes_rgbadn.yaml')
+    parser.add_argument('--root', type=str, default=None, help='Overrides DATASET.ROOT (e.g. data/nuove_patches_gt/UNITO_B)')
+    parser.add_argument('--split', type=str, default=None, choices=['train', 'val', 'test', 'all'],
+                        help="Split to evaluate (default: test). Use 'all' for out-of-domain patches with GT")
+    parser.add_argument('--model-path', type=str, default=None, help='Overrides EVAL.MODEL_PATH')
+    parser.add_argument('--vis-dir', type=str, default=None, help='Overrides EVAL.VIS_SAVE_DIR / CONFUSION_DIR prefix')
     args = parser.parse_args()
 
     with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
+    # Command-line overrides are written into cfg, so every function sees the same values
+    if args.root:
+        cfg['DATASET']['ROOT'] = args.root
+    if args.split:
+        cfg['EVAL']['SPLIT'] = args.split
+    if args.model_path:
+        cfg['EVAL']['MODEL_PATH'] = args.model_path
+    if args.vis_dir:
+        cfg['EVAL']['VIS_SAVE_DIR'] = args.vis_dir
+        cfg['EVAL']['CONFUSION_DIR'] = args.vis_dir + '_confusion'
 
     setup_cudnn()
     # gpu = setup_ddp()

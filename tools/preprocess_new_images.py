@@ -33,40 +33,36 @@ import numpy as np
 from skimage.registration import phase_cross_correlation
 
 
+def _find_image(nuove_img_dir, filename):
+    """Looks for filename in nuove_img_dir and in its immediate subfolders (e.g. 1/, 2/ with the GT)."""
+    candidates = [os.path.join(nuove_img_dir, filename)]
+    candidates += sorted(glob.glob(os.path.join(nuove_img_dir, '*', filename)))
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
 def get_new_image_pairs(nuove_img_dir, masks_dir):
     """
     Locates matching NP and NX image pairs and their corresponding validity mask.
+    Images may sit directly in nuove_img_dir or in a subfolder (UNITO_B now lives in '2/').
     """
     pairs = []
-    
-    # Pair 1: 1_SCALA
-    np1 = os.path.join(nuove_img_dir, '1NP_SCALA.tif')
-    nx1 = os.path.join(nuove_img_dir, '1NX_SCALA.tif')
-    mask1_tif = os.path.join(masks_dir, '1_SCALA_validity_mask.tif')
-    mask1_png = os.path.join(masks_dir, '1_SCALA_validity_mask.png')
-    mask1 = mask1_tif if os.path.exists(mask1_tif) else mask1_png
-    if os.path.exists(np1) and os.path.exists(nx1) and os.path.exists(mask1):
-        pairs.append({
-            'name': '1_SCALA',
-            'np': np1,
-            'nx': nx1,
-            'mask': mask1
-        })
-        
-    # Pair 2: UNITO_B
-    np2 = os.path.join(nuove_img_dir, 'NP_UNITO_BW_B.tif')
-    nx2 = os.path.join(nuove_img_dir, 'NX_UNITO_B.tif')
-    mask2_tif = os.path.join(masks_dir, 'UNITO_B_validity_mask.tif')
-    mask2_png = os.path.join(masks_dir, 'UNITO_B_validity_mask.png')
-    mask2 = mask2_tif if os.path.exists(mask2_tif) else mask2_png
-    if os.path.exists(np2) and os.path.exists(nx2) and os.path.exists(mask2):
-        pairs.append({
-            'name': 'UNITO_B',
-            'np': np2,
-            'nx': nx2,
-            'mask': mask2
-        })
-
+    sections = [
+        ('1_SCALA', '1NP_SCALA.tif', '1NX_SCALA.tif'),
+        ('UNITO_B', 'NP_UNITO_BW_B.tif', 'NX_UNITO_B.tif'),
+    ]
+    for name, np_file, nx_file in sections:
+        np_path = _find_image(nuove_img_dir, np_file)
+        nx_path = _find_image(nuove_img_dir, nx_file)
+        mask_tif = os.path.join(masks_dir, f'{name}_validity_mask.tif')
+        mask_png = os.path.join(masks_dir, f'{name}_validity_mask.png')
+        mask = mask_tif if os.path.exists(mask_tif) else mask_png
+        if np_path and nx_path and os.path.exists(mask):
+            pairs.append({'name': name, 'np': np_path, 'nx': nx_path, 'mask': mask})
+        else:
+            print(f"Warning: skipping {name} (NP={np_path}, NX={nx_path}, mask exists={os.path.exists(mask)})", flush=True)
     return pairs
 
 
