@@ -4,6 +4,7 @@ import math
 import torch
 from torch import Tensor
 from typing import Tuple, List, Union, Optional
+from semseg.normalization import IMAGENET_MEAN, IMAGENET_STD, NORMALIZATIONS, LEGACY_NORMALIZATION
 
 
 class Compose:
@@ -257,8 +258,9 @@ class RandomResizedCrop:
 
         margin_h = max(sample[first_img_key].shape[1] - tH, 0)
         margin_w = max(sample[first_img_key].shape[2] - tW, 0)
-        y1 = random.randint(0, margin_h+1)
-        x1 = random.randint(0, margin_w+1)
+        # randint is inclusive: margin+1 could start the crop 1 px past the image and pad it
+        y1 = random.randint(0, margin_h)
+        x1 = random.randint(0, margin_w)
         y2 = y1 + tH
         x2 = x1 + tW
         for k, v in sample.items():
@@ -275,16 +277,6 @@ class RandomResizedCrop:
         return sample
 
 
-def get_train_augmentation(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0):
-    return Compose([
-        RandomColorJitter(p=0.2),
-        RandomHorizontalFlip(p=0.5),
-        RandomGaussianBlur(3, p=0.2),
-        RandomResizedCrop(size, scale=(0.5, 2.0), seg_fill=seg_fill),
-        Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-    ])
-
-
 class Scale01:
     def __call__(self, sample: dict) -> dict:
         for k, v in sample.items():
@@ -294,20 +286,43 @@ class Scale01:
         return sample
 
 
-def get_val_augmentation(size: Union[int, Tuple[int], List[int]], aug_version: str = 'v1'):
-    if aug_version in ['exp2', 'exp3', 'v2_soft', 'exp4']:
-        return Compose([
-            Resize(size),
-            Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-        ])
-    else:
-        return Compose([
-            Resize(size),
-            Scale01()
-        ])
+def get_normalization_transform(normalization: str):
+    """Final sample-dict transform for a normalization name (see semseg/normalization.py)."""
+    if normalization == 'imagenet':
+        return Normalize(IMAGENET_MEAN, IMAGENET_STD)
+    if normalization == 'scale01':
+        return Scale01()
+    raise ValueError(f"Unknown normalization '{normalization}' (expected one of {NORMALIZATIONS})")
 
 
-def get_train_augmentation_exp1(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0):
+# ---------------------------------------------------------------------------------------
+# First-campaign pipelines (Baseline, Exp1-Exp4A), kept to re-evaluate the old checkpoints.
+# The original runs passed photometric ops only to the discarded 'img' key, and Baseline/Exp1
+# were trained with Scale01: their default normalization reflects that (LEGACY_NORMALIZATION).
+# Second-campaign experiments use build_train_augmentation() with a config dictionary.
+# ---------------------------------------------------------------------------------------
+
+def get_train_augmentation(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0, normalization: Optional[str] = None):
+    return Compose([
+        RandomColorJitter(p=0.2),
+        RandomHorizontalFlip(p=0.5),
+        RandomGaussianBlur(3, p=0.2),
+        RandomResizedCrop(size, scale=(0.5, 2.0), seg_fill=seg_fill),
+        get_normalization_transform(normalization or LEGACY_NORMALIZATION['v1'])
+    ])
+
+
+def get_val_augmentation(size: Union[int, Tuple[int], List[int]], aug_version: str = 'v1', normalization: Optional[str] = None):
+    """Resize + normalization. Pass `normalization` explicitly; aug_version is only the legacy fallback."""
+    if normalization is None:
+        normalization = LEGACY_NORMALIZATION.get(aug_version, 'scale01')
+    return Compose([
+        Resize(size),
+        get_normalization_transform(normalization)
+    ])
+
+
+def get_train_augmentation_exp1(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0, normalization: Optional[str] = None):
     """Esperimento 1: pipeline con augmentation geometrica avanzata."""
     return Compose([
         RandomColorJitter(p=0.2),
@@ -317,7 +332,7 @@ def get_train_augmentation_exp1(size: Union[int, Tuple[int], List[int]], seg_fil
         RandomRotation90(p=0.5),
         RandomRotation(degrees=15, p=0.2, seg_fill=seg_fill),
         RandomResizedCrop(size, scale=(0.5, 2.0), seg_fill=seg_fill),
-        Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        get_normalization_transform(normalization or LEGACY_NORMALIZATION['exp1'])
     ])
 
 
@@ -566,3 +581,153 @@ def get_train_augmentation_exp4(size: Union[int, Tuple[int], List[int]], seg_fil
         # ── Fase 3: Normalizzazione ImageNet ──
         Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
+
+# =======================================================================================
+# Second campaign (v2): configuration-driven pipelines
+# =======================================================================================
+#
+# TRAIN.AUGMENTATION is a dictionary instead of a string, for example:
+#
+#   AUGMENTATION:
+#     GEOMETRIC:
+#       HFLIP: 0.5                         # probability
+#       VFLIP: 0.5
+#       ROT90: 0.5
+#       ROTATE: {DEGREES: 15, P: 0.2}
+#       RESIZED_CROP: {SCALE: [0.5, 2.0]}
+#     PHOTOMETRIC:                         # optional
+#       SYNC: false                        # true: same random parameters for every modality
+#       paralleli:                         # per-modality op lists (SYNC: false) ...
+#         - {OP: brightness, RANGE: [0.6, 1.45], P: 0.7}
+#       incrociati:
+#         - {OP: blur, SIGMA: [0.2, 0.5], P: 0.3}
+#       # SHARED: [ ... ]                  # ... or a single shared list (SYNC: true)
+#
+# Pipeline order: photometric -> geometric -> normalization (DATASET.NORMALIZATION), so that
+# photometric ops never act on the zero padding introduced by rotations and crops.
+#
+# Photometric ops (applied in list order, each with its own probability P):
+#   brightness / contrast / saturation : multiplicative factor in RANGE (LOG: true samples log-uniformly)
+#   hue                                 : shift in RANGE, torchvision units ([-0.5, 0.5] = full circle)
+#   gamma                               : exponent in RANGE (> 1 darkens, < 1 brightens)
+#   jitter                              : torchvision-style colour jitter with BRIGHTNESS / CONTRAST /
+#                                         SATURATION / HUE ranges, applied together with one P
+#   blur                                : Gaussian blur, sigma in SIGMA (px); KERNEL fixes the kernel size,
+#                                         otherwise it is 2*ceil(3*sigma)+1
+#   noise                               : additive Gaussian noise, std in SIGMA (intensity levels)
+
+
+def _sample_range(rng, log=False):
+    lo, hi = float(rng[0]), float(rng[1])
+    if log:
+        return math.exp(random.uniform(math.log(lo), math.log(hi)))
+    return random.uniform(lo, hi)
+
+
+class _PhotometricOp:
+    """One photometric operation: sample() draws its random parameters, apply() uses them."""
+
+    def __init__(self, spec: dict) -> None:
+        self.name = str(spec['OP']).lower()
+        self.p = float(spec.get('P', 1.0))
+        self.spec = spec
+        if self.name not in ('brightness', 'contrast', 'saturation', 'hue', 'gamma', 'jitter', 'blur', 'noise'):
+            raise ValueError(f"Unknown photometric op '{self.name}'")
+
+    def sample(self):
+        s = self.spec
+        if self.name in ('brightness', 'contrast', 'saturation', 'gamma'):
+            return _sample_range(s['RANGE'], s.get('LOG', False))
+        if self.name == 'hue':
+            return _sample_range(s['RANGE'])
+        if self.name == 'jitter':
+            return {k: _sample_range(s[k]) for k in ('BRIGHTNESS', 'CONTRAST', 'SATURATION', 'HUE') if k in s}
+        return _sample_range(s['SIGMA'])  # blur, noise
+
+    def apply(self, v: Tensor, param) -> Tensor:
+        if self.name == 'brightness':
+            return TF.adjust_brightness(v, param)
+        if self.name == 'contrast':
+            return TF.adjust_contrast(v, param)
+        if self.name == 'saturation':
+            return TF.adjust_saturation(v, param)
+        if self.name == 'hue':
+            return TF.adjust_hue(v, param)
+        if self.name == 'gamma':
+            return TF.adjust_gamma(v, param)
+        if self.name == 'jitter':
+            if 'BRIGHTNESS' in param: v = TF.adjust_brightness(v, param['BRIGHTNESS'])
+            if 'CONTRAST' in param: v = TF.adjust_contrast(v, param['CONTRAST'])
+            if 'SATURATION' in param: v = TF.adjust_saturation(v, param['SATURATION'])
+            if 'HUE' in param: v = TF.adjust_hue(v, param['HUE'])
+            return v
+        if self.name == 'blur':
+            if param <= 0:
+                return v
+            k = int(self.spec.get('KERNEL', 0)) or max(3, 2 * math.ceil(3.0 * param) + 1)
+            k += 1 - k % 2  # odd kernel
+            return TF.gaussian_blur(v, kernel_size=k, sigma=[param, param])
+        # noise
+        noisy = v.float() + torch.randn_like(v.float()) * param
+        return torch.clamp(noisy, 0, 255).to(v.dtype)
+
+
+class PhotometricAugmentation:
+    """
+    Per-modality (SYNC: false) or synchronous (SYNC: true) photometric augmentation.
+    Never touches the 'mask' key. In synchronous mode every op draws its parameters once
+    and applies them to all modalities (noise uses the same std but independent noise).
+    """
+
+    def __init__(self, spec: dict) -> None:
+        self.sync = bool(spec.get('SYNC', False))
+        if self.sync:
+            self.ops = {'*': [_PhotometricOp(o) for o in spec.get('SHARED', [])]}
+        else:
+            self.ops = {k: [_PhotometricOp(o) for o in v] for k, v in spec.items() if k not in ('SYNC', 'SHARED')}
+
+    def __call__(self, sample: dict) -> dict:
+        keys = [k for k in sample if k != 'mask']
+        if self.sync:
+            for op in self.ops['*']:
+                if random.random() < op.p:
+                    param = op.sample()
+                    for k in keys:
+                        sample[k] = op.apply(sample[k], param)
+            return sample
+        for k, ops in self.ops.items():
+            if k not in sample:
+                raise KeyError(f"Photometric spec refers to modality '{k}', not present in the sample {keys}")
+            for op in ops:
+                if random.random() < op.p:
+                    sample[k] = op.apply(sample[k], op.sample())
+        return sample
+
+
+def build_geometric_transforms(spec: dict, size, seg_fill: int = 0) -> list:
+    """Geometric transforms in a fixed order: HFLIP, VFLIP, ROT90, ROTATE, RESIZED_CROP."""
+    ops = []
+    if spec.get('HFLIP'):
+        ops.append(RandomHorizontalFlip(p=float(spec['HFLIP'])))
+    if spec.get('VFLIP'):
+        ops.append(RandomVerticalFlip(p=float(spec['VFLIP'])))
+    if spec.get('ROT90'):
+        ops.append(RandomRotation90(p=float(spec['ROT90'])))
+    if spec.get('ROTATE'):
+        r = spec['ROTATE']
+        ops.append(RandomRotation(degrees=float(r['DEGREES']), p=float(r.get('P', 1.0)), seg_fill=seg_fill))
+    if spec.get('RESIZED_CROP'):
+        ops.append(RandomResizedCrop(size, scale=tuple(spec['RESIZED_CROP'].get('SCALE', (0.5, 2.0))), seg_fill=seg_fill))
+    else:
+        ops.append(Resize(size))
+    return ops
+
+
+def build_train_augmentation(aug_spec: dict, size, seg_fill: int, normalization: str) -> Compose:
+    """Builds the v2 training pipeline: photometric -> geometric -> normalization."""
+    transforms = []
+    if aug_spec.get('PHOTOMETRIC'):
+        transforms.append(PhotometricAugmentation(aug_spec['PHOTOMETRIC']))
+    transforms += build_geometric_transforms(aug_spec.get('GEOMETRIC', {}), size, seg_fill)
+    transforms.append(get_normalization_transform(normalization))
+    return Compose(transforms)

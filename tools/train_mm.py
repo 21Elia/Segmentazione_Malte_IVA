@@ -17,7 +17,8 @@ from torch.utils.data import DistributedSampler, RandomSampler, WeightedRandomSa
 from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
-from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3, get_train_augmentation_exp4
+from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3, get_train_augmentation_exp4, build_train_augmentation
+from semseg.normalization import resolve_normalization, write_checkpoint_meta
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
@@ -95,8 +96,15 @@ def main(cfg, save_dir):
     # gpus = int(os.environ['WORLD_SIZE'])
 
     # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
+    # The normalization is resolved once and shared by training and validation (semseg/normalization.py)
+    normalization = resolve_normalization(cfg)
+    logger.info(f'Input normalization: {normalization}')
     aug_version = train_cfg.get('AUGMENTATION', 'v1')
-    if aug_version == 'exp4':
+    if isinstance(aug_version, dict):
+        # Second campaign: configuration-driven pipeline (photometric -> geometric -> normalization)
+        traintransform = build_train_augmentation(aug_version, train_cfg['IMAGE_SIZE'], dataset_cfg['IGNORE_LABEL'], normalization)
+        logger.info(f'Using configuration-driven augmentation pipeline: {traintransform.transforms}')
+    elif aug_version == 'exp4':
         traintransform = get_train_augmentation_exp4(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
         logger.info('Using augmentation pipeline: exp4 (asymmetric NP/NX photometric + geometric C4)')
     elif aug_version in ['exp3', 'v2_soft']:
@@ -106,12 +114,27 @@ def main(cfg, save_dir):
         traintransform = get_train_augmentation_exp2(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
         logger.info(f'Using augmentation pipeline: exp2 (synchronous photometric + geometric augmentation)')
     elif aug_version == 'exp1':
-        traintransform = get_train_augmentation_exp1(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        traintransform = get_train_augmentation_exp1(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'], normalization=normalization)
         logger.info(f'Using augmentation pipeline: exp1 (geometric augmentation)')
     else:
-        traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
+        traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'], normalization=normalization)
         logger.info(f'Using augmentation pipeline: v1 (baseline)')
-    valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], aug_version=aug_version)
+    valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], normalization=normalization)
+
+    def checkpoint_meta(epoch_num, miou_value):
+        # Sidecar '<checkpoint>.meta.json': everything needed to use the checkpoint consistently
+        return {
+            'experiment': cfg['WANDB_NAME'],
+            'normalization': normalization,
+            'dataset_root': dataset_cfg['ROOT'],
+            'num_classes': dataset_cfg['NUM_CLASSES'],
+            'classes': list(class_names),
+            'augmentation': aug_version,
+            'seed': cfg['TRAIN'].get('SEED', 3407),
+            'pretrained': model_cfg['PRETRAINED'],
+            'epoch': epoch_num,
+            'val_miou': miou_value,
+        }
 
     trainset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'train', traintransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
     valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'val', valtransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
@@ -290,6 +313,9 @@ def main(cfg, save_dir):
             if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
                 acc, macc, f1, mf1, ious, miou, test_loss = evaluate(model, valloader, device, loss_fn=loss_fn)
                 writer.add_scalar('val/mIoU', miou, epoch)
+                for cls_name, cls_iou in zip(class_names, ious):
+                    writer.add_scalar(f'val/IoU_{cls_name}', cls_iou, epoch)
+                logger.info(print_iou(epoch, ious, miou, acc, macc, class_names))
 
                 # if use wandb
                 log_data = {
@@ -328,12 +354,21 @@ def main(cfg, save_dir):
                                 'scheduler_state_dict': scheduler.state_dict(),
                                 'best_miou': best_mIoU,
                                 }, cur_best_ckp)
-                    logger.info(print_iou(epoch, ious, miou, acc, macc, class_names))
+                    write_checkpoint_meta(cur_best, checkpoint_meta(best_epoch, best_mIoU))
+                    write_checkpoint_meta(cur_best_ckp, checkpoint_meta(best_epoch, best_mIoU))
+                    for old in (prev_best, prev_best_ckp):
+                        old_meta = f"{old}.meta.json"
+                        if os.path.isfile(old_meta): os.remove(old_meta)
                 logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU}")
 
     # conclusione e pulizia 
     if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
         writer.close()
+        # Weights of the last epoch, to check whether training had converged (best vs last)
+        last_path = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_last.pth"
+        torch.save(model.module.state_dict(), last_path)
+        write_checkpoint_meta(last_path, checkpoint_meta(epochs, miou))
+        logger.info(f'Saved last-epoch weights to {last_path}')
     pbar.close()
     end = time.gmtime(time.time() - start)
 
@@ -351,6 +386,7 @@ def main(cfg, save_dir):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='configs/mcubes_rgbadn.yaml', help='Configuration file to use')
+    parser.add_argument('--seed', type=int, default=None, help='Overrides TRAIN.SEED (default 3407)')
     args = parser.parse_args()
 
     train_losses = [] # lista globale per l'andamento della loss a ogni epoca
@@ -358,7 +394,9 @@ if __name__ == '__main__':
     with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
 
-    fix_seeds(3407)
+    if args.seed is not None:
+        cfg['TRAIN']['SEED'] = args.seed
+    fix_seeds(cfg['TRAIN'].get('SEED', 3407))
     setup_cudnn()
 
     """legge il .yaml e crea cartelle varie, file di log ecc."""
@@ -367,6 +405,9 @@ if __name__ == '__main__':
     model = cfg['MODEL']['BACKBONE']
     # exp_name = '_'.join([cfg['DATASET']['NAME'], model, modals])
     exp_name = cfg['WANDB_NAME']
+    if args.seed is not None:
+        exp_name = f"{exp_name}-seed{args.seed}"  # keep runs with different seeds in separate folders
+        cfg['WANDB_NAME'] = exp_name
     if cfg.get('USE_WANDB', False):
         try:
             wandb.init(project="MMSF-Mortars", name=exp_name)

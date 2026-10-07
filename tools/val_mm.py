@@ -17,6 +17,7 @@ from torch.nn import functional as F
 from semseg.models import *
 from semseg.datasets import *
 from semseg.augmentations_mm import get_val_augmentation
+from semseg.normalization import resolve_normalization
 from semseg.metrics import Metrics
 from semseg.utils.utils import setup_cudnn
 from math import ceil
@@ -305,8 +306,9 @@ def complete_output_dir(): # Associates predictions with corresponding input mod
 def main(cfg):
     device = torch.device(cfg['DEVICE'])
     eval_cfg = cfg['EVAL']
-    aug_version = cfg['TRAIN'].get('AUGMENTATION', 'v1') if 'TRAIN' in cfg else cfg.get('AUGMENTATION', 'v1')
-    transform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], aug_version=aug_version)
+    normalization = resolve_normalization(cfg, eval_cfg['MODEL_PATH'])
+    print(f"Input normalization: {normalization}")
+    transform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], normalization=normalization)
     cases = [None] 
     
     model_path = Path(eval_cfg['MODEL_PATH'])

@@ -30,6 +30,7 @@ except ImportError:
 
 from semseg.models import *
 from semseg.datasets import *
+from semseg.normalization import normalize_tensor, NORMALIZATIONS, LEGACY_NORMALIZATION
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -89,20 +90,14 @@ TTA_TENSOR_TRANSFORMS = [
 
 
 def get_preprocessing(pipeline_name: str, size: tuple = (512, 512)):
-    """Returns preprocessing pipeline based on experiment configuration."""
-    if pipeline_name in ['exp2', 'exp3', 'exp4']:
-        return T.Compose([
-            T.Resize(size),
-            T.Lambda(lambda x: x / 255.0),
-            T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-            T.Lambda(lambda x: x.unsqueeze(0))
-        ])
-    else:
-        return T.Compose([
-            T.Resize(size),
-            T.Lambda(lambda x: x / 255.0),
-            T.Lambda(lambda x: x.unsqueeze(0))
-        ])
+    """Resize + normalization. pipeline_name is a normalization ('imagenet' / 'scale01')
+    or a legacy first-campaign augmentation name (mapped by LEGACY_NORMALIZATION)."""
+    normalization = pipeline_name if pipeline_name in NORMALIZATIONS else LEGACY_NORMALIZATION[pipeline_name]
+    return T.Compose([
+        T.Resize(size),
+        T.Lambda(lambda x: normalize_tensor(x, normalization)),
+        T.Lambda(lambda x: x.unsqueeze(0))
+    ])
 
 
 def load_model(checkpoint_path: str, device: torch.device):

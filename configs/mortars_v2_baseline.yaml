@@ -1,0 +1,75 @@
+# Second campaign (v2) - Baseline: trained from the ImageNet backbone with the corrected labels.
+DEVICE          : cuda
+SAVE_DIR        : 'output/MMSFormer'
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-V2-BASELINE'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'   # ImageNet backbone only
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars_v2'       # labels regenerated with the fixed preprocess.py (black mask pixels = class)
+  IGNORE_LABEL  : 3                       # alignment padding
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates
+  NORMALIZATION : imagenet                # same for training, validation and inference (D1)
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 4
+  EPOCHS        : 100
+  EVAL_START    : 0
+  EVAL_INTERVAL : 1
+  AMP           : false                   # FP32: the old AMP baseline collapsed for several epochs
+  DDP           : false
+  WEIGHTED_RANDOM_SAMPLER : false
+  SEED          : 3407                    # override with --seed for a second run
+  # Effective first-campaign Baseline augmentation: horizontal flip + random resized crop (its colour jitter / blur never reached the model)
+  AUGMENTATION  :
+    GEOMETRIC:
+      HFLIP: 0.5
+      RESIZED_CROP: {SCALE: [0.5, 2.0]}
+
+LOSS:
+  NAME          : OhemCrossEntropy
+  CLS_WEIGHTS   : false
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5]
+
+OPTIMIZER:
+  NAME          : adamw
+  LR            : 0.0001
+  WEIGHT_DECAY  : 0.1
+
+SCHEDULER:
+  NAME          : warmuppolylr
+  POWER         : 0.9
+  WARMUP        : 10
+  WARMUP_RATIO  : 0.1
+
+EVAL:
+  # Fill in after training: the best checkpoint saved in output/MMSFormer/MMSF-V2-BASELINE/
+  MODEL_PATH    : 'output/MMSFormer/MMSF-V2-BASELINE/<best_checkpoint>.pth'
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD  : -1.0
+  SAVE_CONFUSION   : true
+  VIS_SAVE_DIR     : 'data/results_v2_baseline'
+  CONFUSION_DIR    : 'data/confusion_v2_baseline'
+  MSF:
+    ENABLE      : false
+    FLIP        : true
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+
+TEST:
+  MODEL_PATH    : 'output/MMSFormer/MMSF-V2-BASELINE/<best_checkpoint>.pth'
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/inference_v2/v2_baseline'
+  FILE          : 'data/mortars_v2'
+  OVERLAY       : true

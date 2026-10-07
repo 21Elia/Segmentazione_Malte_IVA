@@ -11,6 +11,7 @@ from PIL import Image
 from semseg.utils.utils import timer
 from semseg.datasets import *
 from semseg.models import *
+from semseg.normalization import resolve_normalization, normalize_tensor
 from torch import Tensor
 import glob
 
@@ -57,45 +58,15 @@ class SemSeg:
         # preprocessing
         self.size = cfg['TEST']['IMAGE_SIZE']
         
-        # 1. Check explicit AUGMENTATION setting in config
-        aug_version = None
-        if 'AUGMENTATION' in cfg and cfg['AUGMENTATION']:
-            aug_version = str(cfg['AUGMENTATION']).lower().strip()
-        elif 'TRAIN' in cfg and 'AUGMENTATION' in cfg['TRAIN'] and cfg['TRAIN']['AUGMENTATION']:
-            aug_version = str(cfg['TRAIN']['AUGMENTATION']).lower().strip()
-        elif 'TEST' in cfg and 'AUGMENTATION' in cfg['TEST'] and cfg['TEST']['AUGMENTATION']:
-            aug_version = str(cfg['TEST']['AUGMENTATION']).lower().strip()
-
-        # 2. Auto-detect from checkpoint / model path if omitted or set to 'auto'
-        if not aug_version or aug_version == 'auto':
-            model_path_str = str(model_path).lower()
-            if any(k in model_path_str for k in ['exp4', 'asym', 'mmsf-exp4']):
-                aug_version = 'exp4'
-            elif any(k in model_path_str for k in ['exp3', 'soft', 'v2_soft', 'mmsf-exp3']):
-                aug_version = 'exp3'
-            elif any(k in model_path_str for k in ['exp2', 'photo', 'mmsf-exp2']):
-                aug_version = 'exp2'
-            else:
-                aug_version = 'v1'
-            print(f"[Preprocessing] Auto-detected normalization pipeline: '{aug_version}' ({model_path})")
-        else:
-            print(f"[Preprocessing] Using explicitly configured normalization pipeline: '{aug_version}'")
-
-        if aug_version in ['exp2', 'exp3', 'v2_soft', 'exp4']:
-            print("[Preprocessing] Active pipeline: Resize -> Scale01 [0,1] -> Normalize(ImageNet mean/std)")
-            self.tf_pipeline_modal = T.Compose([
-                T.Resize(self.size),
-                T.Lambda(lambda x: x / 255),
-                T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-                T.Lambda(lambda x: x.unsqueeze(0))
-            ])
-        else:
-            print("[Preprocessing] Active pipeline: Resize -> Scale01 [0,1]")
-            self.tf_pipeline_modal = T.Compose([
-                T.Resize(self.size),
-                T.Lambda(lambda x: x / 255),
-                T.Lambda(lambda x: x.unsqueeze(0))
-            ])
+        # Input normalization: DATASET.NORMALIZATION, else the checkpoint sidecar, else the
+        # legacy AUGMENTATION string (semseg/normalization.py). No guessing from file names.
+        self.normalization = resolve_normalization(cfg, model_path)
+        print(f"[Preprocessing] Resize -> normalization '{self.normalization}' ({model_path})")
+        self.tf_pipeline_modal = T.Compose([
+            T.Resize(self.size),
+            T.Lambda(lambda x: normalize_tensor(x, self.normalization)),
+            T.Lambda(lambda x: x.unsqueeze(0))
+        ])
 
     '''def _open_img(self, file):
         # legge immagini e gestisce canali
