@@ -44,6 +44,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 GT_ROOT = os.path.join('..', 'DIA_FIRENZE', 'Nuove Immagini')
+IGNORE = 255  # label value for pixels that are not annotated or not predicted
 
 DOMAINS = {
     '1_SCALA': {
@@ -80,8 +81,6 @@ def green_to_aggregate(green, source, labels_swapped):
     aggr = (model_class == aggregate_class).astype(np.uint8)
     aggr[green == IGNORE] = IGNORE
     return aggr
-
-IGNORE = 255
 
 
 def load_gray(path):
