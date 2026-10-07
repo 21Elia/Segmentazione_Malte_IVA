@@ -37,26 +37,105 @@ DEFAULT_DOMAINS = {
         'meta': 'data/nuove_patches/1_SCALA/grid_metadata.json',
         'validity_mask': 'output/inspection/1_SCALA_validity_mask.tif',
         'fallback_mask': 'output/inspection/1_SCALA_validity_mask.png',
-        'softmax_pattern': 'output/inference_nuove/inference_nuove_{exp}/1_SCALA/MMSFormer-B3/softmax',
+        'softmax_pattern': 'output/inference_nuove/inference_nuove_{exp}/1_SCALA/MMSFormer-B3/{softmax_subdir}',
         'vpt_pattern': 'output/inference_nuove/inference_nuove_{exp}/1_SCALA/MMSFormer-B3/vpt'
     },
     'UNITO_B': {
         'meta': 'data/nuove_patches/UNITO_B/grid_metadata.json',
         'validity_mask': 'output/inspection/UNITO_B_validity_mask.tif',
         'fallback_mask': 'output/inspection/UNITO_B_validity_mask.png',
-        'softmax_pattern': 'output/inference_nuove/inference_nuove_{exp}/UNITO_B/MMSFormer-B3/softmax',
+        'softmax_pattern': 'output/inference_nuove/inference_nuove_{exp}/UNITO_B/MMSFormer-B3/{softmax_subdir}',
         'vpt_pattern': 'output/inference_nuove/inference_nuove_{exp}/UNITO_B/MMSFormer-B3/vpt'
     },
     'ARCHEO_02': {
         'meta': 'data/patches_5x_scale=057/ARCHEO_02/grid_metadata.json',
         'validity_mask': 'output/inspection/ARCHEO_02_validity_mask.tif',
         'fallback_mask': 'output/inspection/ARCHEO_02_validity_mask.png',
-        'softmax_pattern': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02/MMSFormer-B3/softmax',
+        'softmax_pattern': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02/MMSFormer-B3/{softmax_subdir}',
         'vpt_pattern': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02/MMSFormer-B3/vpt'
     }
 }
 
 EXPERIMENTS = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
+V2_EXPERIMENTS = ['v2_baseline', 'v2_exp1', 'v2_exp2', 'v2_exp4b']
+
+# In-domain reference (historical test split, written by run_all_inferences_softmax.py
+# --domains INDOMAIN_TEST). First-campaign models are scored against the old labels, whose
+# swapped classes match their outputs; v2 models against the corrected labels.
+INDOMAIN_PATTERN = 'output/inference_indomain/{exp}/MMSFormer-B3'
+LABEL_MAPPING_2CLASS = np.array([0, 0, 1, 3] + [3] * 252)  # porosity -> binder, 255 -> ignore
+
+
+def label_root_for(exp):
+    return 'data/mortars_v2/label' if exp.startswith('v2_') else 'data/mortars/label'
+
+
+def auroc(score, positive):
+    """Rank-based AUROC of `score` for detecting `positive` (no sklearn needed)."""
+    order = np.argsort(score, kind='mergesort')
+    ranks = np.empty(len(order)); ranks[order] = np.arange(1, len(order) + 1)
+    n_pos = positive.sum(); n_neg = len(positive) - n_pos
+    if n_pos == 0 or n_neg == 0:
+        return float('nan')
+    return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+
+
+def indomain_reference(experiments, softmax_subdir, output_dir, stride=7):
+    """SE / VPT on the historical test split, SE on correct vs wrong pixels and AUROC(SE -> error)."""
+    rows = []
+    for exp in experiments:
+        base = INDOMAIN_PATTERN.format(exp=exp)
+        sm_dir = os.path.join(base, softmax_subdir)
+        files = sorted(glob.glob(os.path.join(sm_dir, '*.npy')))
+        if not files:
+            print(f"  [Skip] no in-domain softmax for {exp}: {sm_dir}")
+            continue
+        se_all, err_all, vpt_sum, vpt_n = [], [], 0.0, 0
+        for f in files:
+            stem = os.path.splitext(os.path.basename(f))[0]
+            lbl_path = os.path.join(label_root_for(exp), stem + '.tif')
+            if not os.path.exists(lbl_path):
+                continue
+            label = LABEL_MAPPING_2CLASS[np.array(Image.open(lbl_path))]
+            probs = np.load(f).astype(np.float32)
+            keep = label != 3
+            se = compute_shannon_entropy_from_probs(probs)
+            wrong = probs.argmax(0) != label
+            se_all.append(se[keep][::stride]); err_all.append(wrong[keep][::stride])
+            vpt_path = os.path.join(base, 'vpt', stem + '.npy')
+            if os.path.exists(vpt_path):
+                v = np.load(vpt_path)[keep]
+                vpt_sum += float(v.sum()); vpt_n += v.size
+        se_all, err_all = np.concatenate(se_all), np.concatenate(err_all)
+        row = {
+            'Model': exp.upper(), 'Patches': len(files),
+            'Mean SE (bit)': round(float(se_all.mean()), 4),
+            'SE | correct': round(float(se_all[~err_all].mean()), 4),
+            'SE | wrong': round(float(se_all[err_all].mean()), 4),
+            'AUROC SE->error': round(auroc(se_all, err_all), 4),
+            'Error rate %': round(float(err_all.mean() * 100), 2),
+            'Mean VPT': round(vpt_sum / vpt_n, 5) if vpt_n else '',
+        }
+        rows.append(row)
+        print(f"  {exp:12s} " + "  ".join(f"{k}={v}" for k, v in row.items() if k != 'Model'))
+    if rows:
+        out = os.path.join(output_dir, f'indomain_reference_{softmax_subdir}.csv')
+        with open(out, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+            writer.writeheader(); writer.writerows(rows)
+        print(f"[OK] In-domain reference saved to: {out}")
+
+
+def load_indomain_reference(output_dir, softmax_subdir):
+    """{MODEL: {'se': mean SE, 'vpt': mean VPT}} from a previous --indomain run, if any."""
+    path = os.path.join(output_dir, f'indomain_reference_{softmax_subdir}.csv')
+    ref = {}
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            for r in csv.DictReader(f):
+                ref[r['Model']] = {'se': float(r['Mean SE (bit)']),
+                                   'vpt': float(r['Mean VPT']) if r['Mean VPT'] else None}
+    return ref
 
 
 def find_file(primary_path: str, fallback_path: str = None) -> str:
@@ -171,10 +250,23 @@ def main():
                         help="Output directory for reports")
     parser.add_argument('--save-heatmaps', action='store_true',
                         help="Save colored heatmap PNGs for each model and domain")
+    parser.add_argument('--variant', choices=['single', 'tta'], default='tta',
+                        help="Softmax maps to use: single forward pass (softmax/) or TTA average (softmax_tta/)")
+    parser.add_argument('--softmax-subdir', type=str, default=None,
+                        help="Overrides the folder name. First-campaign outputs: 'softmax' (it holds the TTA average)")
+    parser.add_argument('--indomain', action='store_true',
+                        help="Compute the in-domain reference on the historical test split instead of the OOD domains")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     is_softmax = (args.metric == 'se')
+    softmax_subdir = args.softmax_subdir or ('softmax' if args.variant == 'single' else 'softmax_tta')
+
+    if args.indomain:
+        print(f"IN-DOMAIN REFERENCE (historical test split), softmax folder '{softmax_subdir}'")
+        indomain_reference(args.experiments, softmax_subdir, args.output_dir)
+        return
+    reference = load_indomain_reference(args.output_dir, softmax_subdir)
 
     print("=" * 80)
     print(f"EVALUATION OF PROBABILISTIC METRICS: {args.metric.upper()}")
@@ -194,6 +286,7 @@ def main():
         meta_path = dom_info['meta']
         mask_path = find_file(dom_info['validity_mask'], dom_info.get('fallback_mask'))
         dir_pattern = dom_info['softmax_pattern'] if is_softmax else dom_info['vpt_pattern']
+        dir_pattern = dir_pattern.replace('{softmax_subdir}', softmax_subdir)
 
         print(f"\n--- Processing Domain: {dom_name} ---")
         full_results[dom_name] = {}
@@ -219,10 +312,13 @@ def main():
             }
 
             unit = "bit" if is_softmax else ""
+            ref_value = reference.get(exp.upper(), {}).get('se' if is_softmax else 'vpt')
+            delta = f"{res['mean'] - ref_value:+.4f}" if ref_value is not None else "n/a"
             summary_rows.append([
                 dom_name,
                 exp.upper(),
                 f"{res['mean']:.4f} {unit}".strip(),
+                delta,
                 f"{res['median']:.4f} {unit}".strip(),
                 f"{res['std']:.4f} {unit}".strip(),
                 f"{res['p90']:.4f} {unit}".strip(),
@@ -240,7 +336,7 @@ def main():
             gc.collect()
 
     if summary_rows:
-        headers = ["Domain", "Model", f"Mean {args.metric.upper()}", "Median", "Std Dev", "90th Pct", "Valid Pixels"]
+        headers = ["Domain", "Model", f"Mean {args.metric.upper()}", "Δ vs in-domain", "Median", "Std Dev", "90th Pct", "Valid Pixels"]
         print("\n" + "=" * 80)
         print(f"SUMMARY TABLE: {args.metric.upper()} ACROSS ALL DOMAINS AND MODELS")
         print("=" * 80)

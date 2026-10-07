@@ -30,7 +30,7 @@ except ImportError:
 
 from semseg.models import *
 from semseg.datasets import *
-from semseg.normalization import normalize_tensor, NORMALIZATIONS, LEGACY_NORMALIZATION
+from semseg.normalization import normalize_tensor, NORMALIZATIONS, LEGACY_NORMALIZATION, read_checkpoint_meta, checkpoint_meta_path
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -55,8 +55,15 @@ MODELS_REGISTRY = {
     'exp4a': {
         'checkpoint': 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth',
         'pipeline': 'exp4'
-    }
+    },
+    # Second campaign: best checkpoint found automatically in the run folder, normalization
+    # read from its .meta.json sidecar (see semseg/normalization.py)
+    'v2_baseline': {'run_dir': 'output/MMSFormer/MMSF-V2-BASELINE'},
+    'v2_exp1':     {'run_dir': 'output/MMSFormer/MMSF-V2-EXP1'},
+    'v2_exp2':     {'run_dir': 'output/MMSFormer/MMSF-V2-EXP2'},
+    'v2_exp4b':    {'run_dir': 'output/MMSFormer/MMSF-V2-EXP4B'},
 }
+FIRST_CAMPAIGN = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
 
 DOMAINS_REGISTRY = {
     '1_SCALA': {
@@ -70,6 +77,12 @@ DOMAINS_REGISTRY = {
     'ARCHEO_02': {
         'patches_dir': 'data/patches_5x_scale=057/ARCHEO_02',
         'vis_save_dir': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02'
+    },
+    # In-domain reference: the historical test split (same images in data/mortars and
+    # data/mortars_v2; only the labels differ). Used by compute_entropy_vpt.py --indomain.
+    'INDOMAIN_TEST': {
+        'test_split_of': 'data/mortars_v2',
+        'vis_save_dir': 'output/inference_indomain/{exp}'
     }
 }
 
@@ -100,6 +113,33 @@ def get_preprocessing(pipeline_name: str, size: tuple = (512, 512)):
     ])
 
 
+def find_best_checkpoint(run_dir: str):
+    """Best weights of a v2 run: the .pth with a .meta.json sidecar that is not '_last' / '_checkpoint'."""
+    candidates = [p for p in glob.glob(os.path.join(run_dir, '*.pth'))
+                  if not p.endswith(('_last.pth', '_checkpoint.pth')) and os.path.isfile(checkpoint_meta_path(p))]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: read_checkpoint_meta(p).get('val_miou', 0))
+
+
+def resolve_model(model_key: str):
+    """(checkpoint_path, normalization) for a registry entry."""
+    info = MODELS_REGISTRY[model_key]
+    if 'checkpoint' in info:
+        return info['checkpoint'], info['pipeline']
+    ckpt = find_best_checkpoint(info['run_dir'])
+    if ckpt is None:
+        return None, None
+    return ckpt, read_checkpoint_meta(ckpt)['normalization']
+
+
+def domain_files(dom_info: dict):
+    """Sorted list of NP patch paths of a domain."""
+    if 'test_split_of' in dom_info:
+        return [str(f) for f in MORTARS(dom_info['test_split_of'], 'test', None, ['paralleli', 'incrociati']).files]
+    return sorted(glob.glob(os.path.join(dom_info['patches_dir'], 'paralleli', '**', '*.tif'), recursive=True))
+
+
 def load_model(checkpoint_path: str, device: torch.device):
     """Loads MMSFormer-B3 model and checkpoint weights."""
     model = MMSFormer('MMSFormer-B3', num_classes=2, modals=['paralleli', 'incrociati'])
@@ -124,14 +164,14 @@ def open_img(file_path: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Batch Runner for Softmax and TTA Probability Extraction")
-    parser.add_argument('--models', nargs='+', default=list(MODELS_REGISTRY.keys()),
+    parser.add_argument('--models', nargs='+', default=FIRST_CAMPAIGN,
                         help="Models to execute (e.g. baseline exp1 exp2 exp3 exp4a)")
     parser.add_argument('--domains', nargs='+', default=list(DOMAINS_REGISTRY.keys()),
                         help="Domains to evaluate (e.g. 1_SCALA UNITO_B ARCHEO_02)")
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help="Execution device (cuda or cpu)")
     parser.add_argument('--tta', action='store_true',
-                        help="Enable K=8 C4 Test-Time Augmentation (computes VPT and averaged softmax)")
+                        help="Enable the 8-transform D4 test-time augmentation (VPT + averaged softmax, saved to masks_tta/ and softmax_tta/)")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -150,9 +190,8 @@ def main():
             print(f"Warning: Unknown model '{model_key}', skipping.")
             continue
 
-        model_info = MODELS_REGISTRY[model_key]
-        ckpt_path = model_info['checkpoint']
-        if not os.path.exists(ckpt_path):
+        ckpt_path, normalization = resolve_model(model_key)
+        if ckpt_path is None or not os.path.exists(ckpt_path):
             print(f"Warning: Checkpoint not found: {ckpt_path}, skipping.")
             continue
 
@@ -161,18 +200,22 @@ def main():
         print("#" * 70)
 
         model = load_model(ckpt_path, device)
-        preprocess = get_preprocessing(model_info['pipeline'])
+        preprocess = get_preprocessing(normalization)
+        print(f"  Input normalization: {normalization}")
 
         for dom_key in args.domains:
             if dom_key not in DOMAINS_REGISTRY:
                 continue
 
             dom_info = DOMAINS_REGISTRY[dom_key]
-            patches_dir = dom_info['patches_dir']
             vis_dir = Path(dom_info['vis_save_dir'].format(exp=model_key)) / 'MMSFormer-B3'
-            
-            masks_dir = vis_dir / 'masks'
-            softmax_dir = vis_dir / 'softmax'
+
+            # Single-pass and TTA outputs go to separate folders, so a --tta run never
+            # overwrites the single-pass predictions (first-campaign masks/ and softmax/
+            # folders were overwritten by the TTA run).
+            suffix = '_tta' if args.tta else ''
+            masks_dir = vis_dir / f'masks{suffix}'
+            softmax_dir = vis_dir / f'softmax{suffix}'
             vpt_dir = vis_dir / 'vpt'
 
             os.makedirs(masks_dir, exist_ok=True)
@@ -180,9 +223,9 @@ def main():
             if args.tta:
                 os.makedirs(vpt_dir, exist_ok=True)
 
-            files = sorted(glob.glob(os.path.join(patches_dir, 'paralleli', '**', '*.tif'), recursive=True))
+            files = domain_files(dom_info)
             if not files:
-                print(f"  [Skip] No patch files found in: {patches_dir}")
+                print(f"  [Skip] No patch files found for domain {dom_key}")
                 continue
 
             print(f"\n--- Model {model_key.upper()} on Domain {dom_key}: {len(files)} patch pairs ---")

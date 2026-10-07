@@ -5,11 +5,14 @@ Bachelor's Thesis in Computer Engineering — Elia Awad, University of Florence 
 
 Computes surrogate metrics without Ground Truth as defined in the thesis evaluation framework:
 1. ISN (Speckle Noise Index): fraction of pixels in connected components < tau px (physical continuity).
-2. FAA (Fraction of Aggregate Area Phi): aggregate area / valid mortar area (petrographic sanity check).
+2. FAA (Fraction of Aggregate Area Phi): aggregate area / predicted mortar area. It is not a
+   plausibility check against an a-priori range: every mortar has its own aggregate fraction.
 3. TTD (Test-Time Disagreement): pixel-wise disagreement percentage between pairs of models.
 
-Operates directly on full-resolution reconstructed segmentation maps (PNG).
-Automatically handles validity mask resizing for ARCHEO_02 (calibrated 0.57x resolution).
+Operates directly on full-resolution reconstructed segmentation maps (PNG), green = aggregates
+(first campaign: inverted palette over swapped labels; second campaign: standard palette).
+All metrics use valid mortar AND area covered by the patches (grid_metadata.json) as the
+denominator. Automatically handles validity mask resizing for ARCHEO_02 (0.57x resolution).
 """
 
 import os
@@ -25,6 +28,9 @@ from tabulate import tabulate
 import csv
 from datetime import datetime
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.patch_geometry import coverage_mask
+
 # Disable PIL image size limit for gigapixel stitched sections (e.g., ARCHEO_02)
 Image.MAX_IMAGE_PIXELS = None
 
@@ -33,22 +39,26 @@ Image.MAX_IMAGE_PIXELS = None
 DEFAULT_PATHS = {
     'domains': {
         '1_SCALA': {
+            'meta': 'data/nuove_patches/1_SCALA/grid_metadata.json',
             'validity_mask': 'output/inspection/1_SCALA_validity_mask.tif',
             'fallback_mask': 'output/inspection/1_SCALA_validity_mask.png',
             'recon_pattern': 'output/inference_nuove/inference_nuove_{exp}/1_SCALA_reconstructed.png'
         },
         'UNITO_B': {
+            'meta': 'data/nuove_patches/UNITO_B/grid_metadata.json',
             'validity_mask': 'output/inspection/UNITO_B_validity_mask.tif',
             'fallback_mask': 'output/inspection/UNITO_B_validity_mask.png',
             'recon_pattern': 'output/inference_nuove/inference_nuove_{exp}/UNITO_B_reconstructed.png'
         },
         'ARCHEO_02': {
+            'meta': 'data/patches_5x_scale=057/ARCHEO_02/grid_metadata.json',
             'validity_mask': 'output/inspection/ARCHEO_02_validity_mask.tif',
             'fallback_mask': 'output/inspection/ARCHEO_02_validity_mask.png',
             'recon_pattern': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02/ARCHEO_02_calibrated_reconstructed_segmap.png'
         }
     },
-    'experiments': ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
+    'experiments': ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a'],
+    # second campaign: --experiments v2_baseline v2_exp1 v2_exp2 v2_exp4b
 }
 
 
@@ -275,8 +285,20 @@ def main():
             print(f"No predictions loaded for {dom_name}.")
             continue
 
-        # 2. Load and align validity mask
+        # 2. Load and align validity mask, restricted to the area actually predicted.
+        # Patches exist only where the 512x512 window is entirely mortar, so a band of mortar
+        # along the section border is never predicted; counting it (as binder, without speckle,
+        # in agreement) diluted FAA / ISN / TTD by the coverage fraction (UNITO_B: 54%).
         valid_mask = load_validity_mask(mask_path, target_shape)
+        with open(dom_cfg['meta'], encoding='utf-8') as f:
+            covered = coverage_mask(json.load(f))
+        if covered.shape != valid_mask.shape:
+            raise ValueError(f"grid_metadata size {covered.shape} differs from the prediction {valid_mask.shape}")
+        n_valid = int(np.count_nonzero(valid_mask))
+        valid_mask &= covered
+        print(f"  [Mask] Predicted area: {np.count_nonzero(valid_mask):,} px "
+              f"({np.count_nonzero(valid_mask) / max(n_valid, 1) * 100:.1f}% of the valid mortar)")
+        del covered
 
         domain_metrics = {
             'target_shape': list(target_shape),
