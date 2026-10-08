@@ -313,7 +313,7 @@ def main(cfg):
     
     model_path = Path(eval_cfg['MODEL_PATH'])
     if not model_path.exists(): 
-        raise FileNotFoundError
+        raise FileNotFoundError(f"EVAL.MODEL_PATH not found: {model_path}")
     print(f"Evaluating {model_path}...")
 
     exp_time = time.strftime('%Y%m%d_%H%M%S', time.localtime())
