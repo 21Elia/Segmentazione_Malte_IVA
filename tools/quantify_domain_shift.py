@@ -188,19 +188,28 @@ def accumulate(files, modality, do_glcm):
     return acc
 
 
-def blur_calibration(files, modality, max_patches=100):
-    """Median residual normalized sharpness of Source patches blurred with each sigma."""
+def blur_calibration(files, modality, per_section=10):
+    """Median residual normalized sharpness of Source patches blurred with each sigma.
+
+    Uses up to `per_section` patches from every historical section, so the curve reflects all
+    of them. The blur spreads the zero padding into nearby pixels, so the statistics are taken
+    on the valid mask eroded by the kernel radius of the largest sigma, the same for every sigma.
+    """
+    radius = int(np.ceil(3 * max(BLUR_SIGMAS)))
+    kernel = np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
+    by_section = {}
+    for f in files:   # files are already shuffled within each section by sample_patches
+        if len(by_section.setdefault(section_of(f), [])) < per_section:
+            by_section[section_of(f)].append(f)
     grays = []
-    for min_valid in (0.98, 0.90, 0.0):   # prefer patches without padding, relax if too few
-        grays = []
-        for f in files:
+    for sec_files in by_section.values():
+        for f in sec_files:
             img, valid = load_pair(f, modality)
-            if img is not None and valid.mean() >= min_valid:
-                grays.append((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), valid))
-            if len(grays) >= max_patches:
-                break
-        if len(grays) >= 20:
-            break
+            if img is None:
+                continue
+            core = cv2.erode(valid.astype(np.uint8), kernel).astype(bool)
+            grays.append((cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), core))
+    print(f"  blur calibration: {len(grays)} Source patches from {len(by_section)} sections")
     curve = []
     for s in BLUR_SIGMAS:
         ratios = []
