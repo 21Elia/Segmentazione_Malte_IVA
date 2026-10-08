@@ -88,7 +88,7 @@ def main(cfg, save_dir):
     train_cfg, eval_cfg = cfg['TRAIN'], cfg['EVAL']
     dataset_cfg, model_cfg = cfg['DATASET'], cfg['MODEL']
     loss_cfg, optim_cfg, sched_cfg = cfg['LOSS'], cfg['OPTIMIZER'], cfg['SCHEDULER']
-    epochs, lr = train_cfg['EPOCHS'], optim_cfg['LR']
+    epochs, lr = train_cfg['EPOCHS'], float(optim_cfg['LR'])  # PyYAML parses '3e-05' (no dot) as a string
     resume_path = cfg['MODEL']['RESUME']
     gpus = cfg['GPUs']
     use_wandb = cfg['USE_WANDB']

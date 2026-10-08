@@ -9,7 +9,7 @@ WANDB_NAME      : 'MMSF-V2-EXP2'
 MODEL:
   NAME          : MMSFormer
   BACKBONE      : MMSFormer-B3
-  PRETRAINED    : 'output/MMSFormer/MMSF-V2-BASELINE/<best_checkpoint>.pth'   # fill in: best v2 Baseline
+  PRETRAINED    : '/output/MMSFormer/MMSF-V2-BASELINE/MMSFormer_MMSFormer-B3_MORTARS_epoch100_80.03_checkpoint.pth'   # best v2 Baseline (val 80.03, test 78.62)
   RESUME        : ''
 
 DATASET:
@@ -54,7 +54,7 @@ LOSS:
 
 OPTIMIZER:
   NAME          : adamw
-  LR            : 3e-05
+  LR            : 0.00003         # 3e-5 written in decimal: PyYAML reads '3e-05' as a string
   WEIGHT_DECAY  : 0.01
 
 SCHEDULER:
