@@ -9,7 +9,7 @@ WANDB_NAME      : 'MMSF-V2-EXP2'
 MODEL:
   NAME          : MMSFormer
   BACKBONE      : MMSFormer-B3
-  PRETRAINED    : '/output/MMSFormer/MMSF-V2-BASELINE/MMSFormer_MMSFormer-B3_MORTARS_epoch100_80.03_checkpoint.pth'   # best v2 Baseline (val 80.03, test 78.62)
+  PRETRAINED    : 'output/MMSFormer/MMSF-V2-BASELINE/MMSFormer_MMSFormer-B3_MORTARS_epoch100_80.03.pth'   # best v2 Baseline (val 80.03, test 78.62)
   RESUME        : ''
 
 DATASET:

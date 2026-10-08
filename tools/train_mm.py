@@ -156,10 +156,15 @@ def main(cfg, save_dir):
         pretrained_path = model_cfg['PRETRAINED']
         if os.path.isfile(pretrained_path):
             pretrained_state = torch.load(pretrained_path, map_location=torch.device('cpu'))
+            if 'model_state_dict' in pretrained_state:   # *_checkpoint.pth (weights + optimizer state)
+                pretrained_state = pretrained_state['model_state_dict']
             if 'state_dict' in pretrained_state:
                 pretrained_state = pretrained_state['state_dict']
             if 'model' in pretrained_state:
                 pretrained_state = pretrained_state['model']
+            # *_checkpoint.pth stores the DataParallel state dict: without this strip no key would match
+            pretrained_state = {k[len('module.'):] if k.startswith('module.') else k: v
+                                for k, v in pretrained_state.items()}
             # Verifica se contiene chiavi del decode_head (= modello intero)
             has_decode_head = any('decode_head' in k for k in pretrained_state.keys())
             if has_decode_head:
@@ -172,8 +177,11 @@ def main(cfg, save_dir):
                 model.init_pretrained(pretrained_path)
                 logger.info(f'Loaded backbone from {pretrained_path}')
             del pretrained_state
+        elif pretrained_path:
+            # A wrong path used to fall back silently to random weights
+            raise FileNotFoundError(f"MODEL.PRETRAINED not found: {pretrained_path}")
         else:
-            logger.warning(f'Pretrained file not found: {pretrained_path}. Training from scratch.')
+            logger.warning('MODEL.PRETRAINED is empty: training from scratch.')
     
     model = torch.nn.DataParallel(model, device_ids=cfg['GPU_IDs'])
     model = model.to(device)
