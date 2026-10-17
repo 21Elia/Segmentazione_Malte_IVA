@@ -315,15 +315,17 @@ def main():
             domain_metrics['experiments'][exp] = res
             print(" Done.")
 
-        # Determine baseline speckle for delta calculation (if baseline was evaluated in this domain)
+        # Determine baseline speckle for delta calculation (if baseline was evaluated in this domain);
+        # the second-campaign baseline is registered as 'v2_baseline'
+        baseline_key = next((e for e in ('baseline', 'v2_baseline') if e in domain_metrics['experiments']), None)
         baseline_isn = None
-        if 'baseline' in domain_metrics['experiments']:
-            baseline_isn = domain_metrics['experiments']['baseline']['speckle_px_total']
+        if baseline_key is not None:
+            baseline_isn = domain_metrics['experiments'][baseline_key]['speckle_px_total']
 
         for exp in loaded_preds.keys():
             res = domain_metrics['experiments'][exp]
             delta_baseline_str = "-"
-            if baseline_isn is not None and baseline_isn > 0 and exp != 'baseline':
+            if baseline_isn is not None and baseline_isn > 0 and exp != baseline_key:
                 pct_diff = ((res['speckle_px_total'] - baseline_isn) / baseline_isn) * 100.0
                 delta_baseline_str = f"{pct_diff:+.1f}%"
 
