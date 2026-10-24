@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Tuple
 import glob
 from torch.utils.data import DataLoader
-from semseg.augmentations_mm import get_train_augmentation
+from semseg.augmentations_mm import build_train_augmentation
 from PIL import Image
 import numpy as np
 import random
@@ -153,7 +153,8 @@ if __name__ == '__main__':
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
     num_classes = cfg['DATASET']['NUM_CLASSES']
 
-    traintransform = get_train_augmentation((512, 512))
+    traintransform = build_train_augmentation(cfg['TRAIN']['AUGMENTATION'], cfg['TRAIN']['IMAGE_SIZE'],
+                                              cfg['DATASET']['IGNORE_LABEL'], cfg['DATASET']['NORMALIZATION'])
     trainset = MORTARS(num_classes = num_classes, transform=traintransform, split='train')
     trainloader = DataLoader(trainset, batch_size=2, num_workers=2, drop_last=False, pin_memory=False)
 

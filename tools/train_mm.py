@@ -17,7 +17,7 @@ from torch.utils.data import DistributedSampler, RandomSampler, WeightedRandomSa
 from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
-from semseg.augmentations_mm import get_train_augmentation, get_val_augmentation, get_train_augmentation_exp1, get_train_augmentation_exp2, get_train_augmentation_exp3, get_train_augmentation_exp4, build_train_augmentation
+from semseg.augmentations_mm import get_val_augmentation, build_train_augmentation
 from semseg.normalization import resolve_normalization, write_checkpoint_meta
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
@@ -110,26 +110,13 @@ def main(cfg, save_dir):
     # The normalization is resolved once and shared by training and validation (semseg/normalization.py)
     normalization = resolve_normalization(cfg)
     logger.info(f'Input normalization: {normalization}')
-    aug_version = train_cfg.get('AUGMENTATION', 'v1')
-    if isinstance(aug_version, dict):
-        # Second campaign: configuration-driven pipeline (photometric -> geometric -> normalization)
-        traintransform = build_train_augmentation(aug_version, train_cfg['IMAGE_SIZE'], dataset_cfg['IGNORE_LABEL'], normalization)
-        logger.info(f'Using configuration-driven augmentation pipeline: {traintransform.transforms}')
-    elif aug_version == 'exp4':
-        traintransform = get_train_augmentation_exp4(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
-        logger.info('Using augmentation pipeline: exp4 (asymmetric NP/NX photometric + geometric C4)')
-    elif aug_version in ['exp3', 'v2_soft']:
-        traintransform = get_train_augmentation_exp3(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
-        logger.info(f'Using augmentation pipeline: exp3 / v2_soft (soft synchronous photometric + geometric augmentation)')
-    elif aug_version == 'exp2':
-        traintransform = get_train_augmentation_exp2(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'])
-        logger.info(f'Using augmentation pipeline: exp2 (synchronous photometric + geometric augmentation)')
-    elif aug_version == 'exp1':
-        traintransform = get_train_augmentation_exp1(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'], normalization=normalization)
-        logger.info(f'Using augmentation pipeline: exp1 (geometric augmentation)')
-    else:
-        traintransform = get_train_augmentation(train_cfg['IMAGE_SIZE'], seg_fill=dataset_cfg['IGNORE_LABEL'], normalization=normalization)
-        logger.info(f'Using augmentation pipeline: v1 (baseline)')
+    aug_cfg = train_cfg.get('AUGMENTATION')
+    if not isinstance(aug_cfg, dict):
+        raise ValueError("TRAIN.AUGMENTATION must be a dictionary with GEOMETRIC / PHOTOMETRIC sections "
+                         "(the first-campaign string pipelines were removed)")
+    # photometric -> geometric -> normalization, see semseg/augmentations_mm.py
+    traintransform = build_train_augmentation(aug_cfg, train_cfg['IMAGE_SIZE'], dataset_cfg['IGNORE_LABEL'], normalization)
+    logger.info(f'Augmentation pipeline: {traintransform.transforms}')
     valtransform = get_val_augmentation(eval_cfg['IMAGE_SIZE'], normalization=normalization)
 
     def checkpoint_meta(epoch_num, miou_value):
@@ -140,7 +127,7 @@ def main(cfg, save_dir):
             'dataset_root': dataset_cfg['ROOT'],
             'num_classes': dataset_cfg['NUM_CLASSES'],
             'classes': list(class_names),
-            'augmentation': aug_version,
+            'augmentation': aug_cfg,
             'seed': cfg['TRAIN'].get('SEED', 3407),
             'pretrained': model_cfg['PRETRAINED'],
             'epoch': epoch_num,
@@ -233,6 +220,7 @@ def main(cfg, save_dir):
         scheduler.load_state_dict(resume_checkpoint['scheduler_state_dict'])
         loss = resume_checkpoint['loss']        
         best_mIoU = resume_checkpoint['best_miou']
+        best_epoch = resume_checkpoint['epoch']   # the resume checkpoint is the best one: its files are replaced at the next record
         es_state = resume_checkpoint.get('early_stopping', {})
         es_best, es_bad = es_state.get('best', es_best), es_state.get('bad', es_bad)
         del resume_checkpoint
