@@ -465,9 +465,13 @@ if __name__ == '__main__':
             print(f"Warning: wandb.init failed ({e}). Proceeding without wandb logging.", flush=True)
 
     save_dir = Path(cfg['SAVE_DIR'], exp_name)
-    if os.path.isfile(cfg['MODEL']['RESUME']):
-        save_dir =  Path(os.path.dirname(cfg['MODEL']['RESUME']))
+    resume = cfg['MODEL']['RESUME']
+    if resume and not os.path.isfile(resume):
+        # a missing RESUME used to start a new training from scratch in the same folder, overwriting its log
+        parser.error(f'MODEL.RESUME not found: {resume}')
+    if resume:
+        save_dir =  Path(os.path.dirname(resume))
     os.makedirs(save_dir, exist_ok=True)
-    logger = get_logger(save_dir / 'train.log')
+    logger = get_logger(save_dir / 'train.log', mode='a' if resume else 'w')
     main(cfg, save_dir)
     cleanup_ddp()

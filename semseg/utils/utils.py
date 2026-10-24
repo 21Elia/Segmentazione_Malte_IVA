@@ -125,7 +125,7 @@ def timer(func):
 # _default_level_name = os.getenv('ENGINE_LOGGING_LEVEL', 'INFO')
 # _default_level = logging.getLevelName(_default_level_name.upper())
 
-def get_logger(log_file=None):
+def get_logger(log_file=None, mode='w'):
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s: - %(message)s',datefmt='%Y%m%d %H:%M:%S')
     logger = logging.getLogger()
     # logger.setLevel(logging.DEBUG)
@@ -133,7 +133,7 @@ def get_logger(log_file=None):
     del logger.handlers[:]
 
     if log_file:
-        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler = logging.FileHandler(log_file, mode=mode)   # 'a' when resuming, to keep the earlier epochs
         # file_handler.setLevel(logging.DEBUG)
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
