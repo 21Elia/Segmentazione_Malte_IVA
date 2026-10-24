@@ -1,0 +1,93 @@
+# Sweep campaign (v3) - Exp 2: Baseline v3 + generic synchronous photometric augmentation
+# (ranges of the v2 Exp2). Each image goes through the photometric pipeline with probability
+# P_IMAGE (override with --p-image; the run folder gets the suffix -pXXX).
+DEVICE          : cuda
+SAVE_DIR        : 'output/MMSFormer'
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-V3-EXP2'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'   # ImageNet backbone only
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars_v2'       # labels regenerated with the fixed preprocess.py (black mask pixels = class)
+  IGNORE_LABEL  : 3                       # alignment padding
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates
+  NORMALIZATION : imagenet                # same for training, validation and inference (D1)
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 4
+  EPOCHS        : 300                     # upper bound: early stopping decides when to stop
+  EVAL_START    : 0
+  EVAL_INTERVAL : 1                       # the plateau and early stopping counters count validations
+  AMP           : false                   # FP32: the old AMP baseline collapsed for several epochs
+  DDP           : false
+  WEIGHTED_RANDOM_SAMPLER : false
+  SEED          : 3407                    # override with --seed for a second run
+  EARLY_STOPPING:
+    PATIENCE    : 30                      # validations without a gain > MIN_DELTA before stopping
+    MIN_DELTA   : 0.1                     # mIoU points
+  AUGMENTATION  :
+    GEOMETRIC:
+      HFLIP: 0.5
+      VFLIP: 0.5
+      ROT90: 0.5
+      ROTATE: {DEGREES: 15, P: 0.2}
+      RESIZED_CROP: {SCALE: [0.5, 2.0]}
+    PHOTOMETRIC:
+      P_IMAGE: 0.5                        # sweep: 0.25, 0.5, 0.75, 1 (--p-image); a selected image gets at least one op
+      SYNC: true                          # same random parameters on NP and NX
+      SHARED:                             # internal probabilities as in the v2 Exp2
+        - {OP: jitter, BRIGHTNESS: [0.7, 1.3], CONTRAST: [0.7, 1.3], SATURATION: [0.7, 1.3], HUE: [-0.05, 0.05], P: 0.5}
+        - {OP: gamma, RANGE: [0.7, 1.5], P: 0.3}
+        - {OP: noise, SIGMA: [0, 15], P: 0.3}
+        - {OP: blur, SIGMA: [0.1, 2.0], KERNEL: 3, P: 0.2}
+
+LOSS:
+  NAME          : OhemCrossEntropy
+  CLS_WEIGHTS   : false
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5]
+
+OPTIMIZER:
+  NAME          : adamw
+  LR            : 0.0001
+  WEIGHT_DECAY  : 0.1
+
+SCHEDULER:
+  NAME          : warmupplateau           # linear warmup per iteration, then ReduceLROnPlateau on the val mIoU
+  WARMUP        : 10                      # epochs, from WARMUP_RATIO * LR to LR
+  WARMUP_RATIO  : 0.1
+  FACTOR        : 0.5                     # LR multiplier at each plateau
+  PATIENCE      : 8                       # validations without a gain > THRESHOLD before reducing the LR
+  THRESHOLD     : 0.1                     # mIoU points (absolute)
+  MIN_LR        : 0.000001
+
+EVAL:
+  # Fill in after training (or pass --model-path): the best checkpoint in output/MMSFormer/MMSF-V3-EXP2-pXXX/
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD  : -1.0
+  SAVE_CONFUSION   : true
+  VIS_SAVE_DIR     : 'data/results_v3_exp2'
+  CONFUSION_DIR    : 'data/confusion_v3_exp2'
+  MSF:
+    ENABLE      : false
+    FLIP        : true
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+
+TEST:
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/inference_v3/v3_exp2'
+  FILE          : 'data/mortars_v2'
+  OVERLAY       : true
