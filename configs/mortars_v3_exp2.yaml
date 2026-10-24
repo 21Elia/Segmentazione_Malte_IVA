@@ -2,7 +2,7 @@
 # (ranges of the v2 Exp2). Each image goes through the photometric pipeline with probability
 # P_IMAGE (override with --p-image; the run folder gets the suffix -pXXX).
 DEVICE          : cuda
-SAVE_DIR        : 'output/MMSFormer'
+SAVE_DIR        : 'output/campaign3/MMSFormer'   # every output of the third campaign under output/campaign3
 GPUs            : 1
 GPU_IDs         : [0]
 USE_WANDB       : false
@@ -71,15 +71,15 @@ SCHEDULER:
   MIN_LR        : 0.000001
 
 EVAL:
-  # Fill in after training (or pass --model-path): the best checkpoint in output/MMSFormer/MMSF-V3-EXP2-pXXX/
+  # Fill in after training (or pass --model-path): the best checkpoint in output/campaign3/MMSFormer/MMSF-V3-EXP2-pXXX/
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
   SAVE_PREDICTIONS : true
   ERROR_THRESHOLD  : -1.0
   SAVE_CONFUSION   : true
-  VIS_SAVE_DIR     : 'data/results_v3_exp2'
-  CONFUSION_DIR    : 'data/confusion_v3_exp2'
+  VIS_SAVE_DIR     : 'output/campaign3/results/v3_exp2'
+  CONFUSION_DIR    : 'output/campaign3/confusion/v3_exp2'
   MSF:
     ENABLE      : false
     FLIP        : true
@@ -88,6 +88,6 @@ EVAL:
 TEST:
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/inference_v3/v3_exp2'
+  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_exp2'
   FILE          : 'data/mortars_v2'
   OVERLAY       : true

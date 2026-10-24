@@ -2,7 +2,7 @@
 # and no photometric augmentation (the p = 0 point of the sweep). Early stopping on the val mIoU with a
 # warmup + plateau LR schedule instead of a fixed number of epochs.
 DEVICE          : cuda
-SAVE_DIR        : 'output/MMSFormer'
+SAVE_DIR        : 'output/campaign3/MMSFormer'   # every output of the third campaign under output/campaign3
 GPUs            : 1
 GPU_IDs         : [0]
 USE_WANDB       : false
@@ -63,15 +63,15 @@ SCHEDULER:
   MIN_LR        : 0.000001
 
 EVAL:
-  # Fill in after training: the best checkpoint saved in output/MMSFormer/MMSF-V3-BASELINE/
+  # Fill in after training: the best checkpoint saved in output/campaign3/MMSFormer/MMSF-V3-BASELINE/
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
   SAVE_PREDICTIONS : true
   ERROR_THRESHOLD  : -1.0
   SAVE_CONFUSION   : true
-  VIS_SAVE_DIR     : 'data/results_v3_baseline'
-  CONFUSION_DIR    : 'data/confusion_v3_baseline'
+  VIS_SAVE_DIR     : 'output/campaign3/results/v3_baseline'
+  CONFUSION_DIR    : 'output/campaign3/confusion/v3_baseline'
   MSF:
     ENABLE      : false
     FLIP        : true
@@ -80,6 +80,6 @@ EVAL:
 TEST:
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/inference_v3/v3_baseline'
+  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_baseline'
   FILE          : 'data/mortars_v2'
   OVERLAY       : true
