@@ -602,6 +602,12 @@ def get_train_augmentation_exp4(size: Union[int, Tuple[int], List[int]], seg_fil
 #       incrociati:
 #         - {OP: blur, SIGMA: [0.2, 0.5], P: 0.3}
 #       # SHARED: [ ... ]                  # ... or a single shared list (SYNC: true)
+#       P_IMAGE: 0.5                       # optional, see below
+#
+# P_IMAGE (optional): probability that an image goes through the photometric pipeline. A selected
+# image always receives at least one op: the per-op draws are repeated until one succeeds, so
+# P_IMAGE is exactly the fraction of perturbed images whatever the internal probabilities. Without
+# P_IMAGE every op is drawn independently with its own P and an image may come out untouched.
 #
 # Pipeline order: photometric -> geometric -> normalization (DATASET.NORMALIZATION), so that
 # photometric ops never act on the zero padding introduced by rotations and crops.
@@ -684,10 +690,30 @@ class PhotometricAugmentation:
         if self.sync:
             self.ops = {'*': [_PhotometricOp(o) for o in spec.get('SHARED', [])]}
         else:
-            self.ops = {k: [_PhotometricOp(o) for o in v] for k, v in spec.items() if k not in ('SYNC', 'SHARED')}
+            self.ops = {k: [_PhotometricOp(o) for o in v] for k, v in spec.items() if k not in ('SYNC', 'SHARED', 'P_IMAGE')}
+        self.p_image = spec.get('P_IMAGE')
+        if self.p_image is not None:
+            self.p_image = float(self.p_image)
+            if not 0.0 <= self.p_image <= 1.0:
+                raise ValueError(f"P_IMAGE must be in [0, 1], got {self.p_image}")
+            if self.p_image > 0 and not any(op.p > 0 for ops in self.ops.values() for op in ops):
+                raise ValueError("P_IMAGE > 0 needs at least one photometric op with P > 0")
+
+    def __repr__(self) -> str:
+        ops = {k: [op.name for op in v] for k, v in self.ops.items()}
+        return f"PhotometricAugmentation(sync={self.sync}, p_image={self.p_image}, ops={ops})"
+
+    def _draw_at_least_one(self) -> dict:
+        """Which ops fire, {modality: [bool per op]}, conditioned on at least one op firing."""
+        while True:
+            fire = {k: [random.random() < op.p for op in ops] for k, ops in self.ops.items()}
+            if any(any(f) for f in fire.values()):
+                return fire
 
     def __call__(self, sample: dict) -> dict:
         keys = [k for k in sample if k != 'mask']
+        if self.p_image is not None:
+            return self._call_p_image(sample, keys)
         if self.sync:
             for op in self.ops['*']:
                 if random.random() < op.p:
@@ -700,6 +726,26 @@ class PhotometricAugmentation:
                 raise KeyError(f"Photometric spec refers to modality '{k}', not present in the sample {keys}")
             for op in ops:
                 if random.random() < op.p:
+                    sample[k] = op.apply(sample[k], op.sample())
+        return sample
+
+    def _call_p_image(self, sample: dict, keys: list) -> dict:
+        # Kept apart from the per-op path above so that configs without P_IMAGE draw the same random sequence
+        if random.random() >= self.p_image:
+            return sample
+        fire = self._draw_at_least_one()
+        if self.sync:
+            for op, f in zip(self.ops['*'], fire['*']):
+                if f:
+                    param = op.sample()
+                    for k in keys:
+                        sample[k] = op.apply(sample[k], param)
+            return sample
+        for k, ops in self.ops.items():
+            if k not in sample:
+                raise KeyError(f"Photometric spec refers to modality '{k}', not present in the sample {keys}")
+            for op, f in zip(ops, fire[k]):
+                if f:
                     sample[k] = op.apply(sample[k], op.sample())
         return sample
 

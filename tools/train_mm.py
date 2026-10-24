@@ -95,6 +95,17 @@ def main(cfg, save_dir):
     wandb_name = cfg['WANDB_NAME']
     # gpus = int(os.environ['WORLD_SIZE'])
 
+    # Optional early stopping on the val mIoU: stop after PATIENCE validations (= epochs with
+    # EVAL_INTERVAL 1) without a gain larger than MIN_DELTA over the best value counted so far
+    es_cfg = train_cfg.get('EARLY_STOPPING') or {}
+    es_patience = int(es_cfg['PATIENCE']) if 'PATIENCE' in es_cfg else None
+    es_min_delta = float(es_cfg.get('MIN_DELTA', 0.0))
+    es_best, es_bad = 0.0, 0
+    if es_patience is not None and train_cfg['DDP']:
+        raise NotImplementedError('EARLY_STOPPING is decided on rank 0 only and is not supported with DDP')
+    stop_reason = 'max epochs'
+    last_epoch = 0
+
     # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
     # The normalization is resolved once and shared by training and validation (semseg/normalization.py)
     normalization = resolve_normalization(cfg)
@@ -197,7 +208,9 @@ def main(cfg, save_dir):
 
     start_epoch = 0
     optimizer = get_optimizer(model, optim_cfg['NAME'], lr, optim_cfg['WEIGHT_DECAY'])
-    scheduler = get_scheduler(sched_cfg['NAME'], optimizer, int((epochs+1)*iters_per_epoch), sched_cfg['POWER'], iters_per_epoch * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'])
+    scheduler = get_scheduler(sched_cfg['NAME'], optimizer, int((epochs+1)*iters_per_epoch), sched_cfg.get('POWER', 0.9), iters_per_epoch * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'], plateau_cfg=sched_cfg)
+    if es_patience is not None:
+        logger.info(f'Early stopping: patience {es_patience} validations, min delta {es_min_delta}, at most {epochs} epochs')
 
     # --- definisce come campionare i dati per il training---
     if train_cfg['DDP']: 
@@ -220,6 +233,8 @@ def main(cfg, save_dir):
         scheduler.load_state_dict(resume_checkpoint['scheduler_state_dict'])
         loss = resume_checkpoint['loss']        
         best_mIoU = resume_checkpoint['best_miou']
+        es_state = resume_checkpoint.get('early_stopping', {})
+        es_best, es_bad = es_state.get('best', es_best), es_state.get('bad', es_bad)
         del resume_checkpoint
 
     # istanzia i DataLoader per il training set e validation set
@@ -241,6 +256,7 @@ def main(cfg, save_dir):
 
     # --- Training Loop principale ---
     for epoch in range(start_epoch, epochs):
+        last_epoch = epoch + 1
         # Clean Memory
         torch.cuda.empty_cache() # ad ogni epoca svuota la cache cuda
         gc.collect()             # e invoca il garbage collector
@@ -300,6 +316,7 @@ def main(cfg, save_dir):
         train_loss /= iter+1
         if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
             writer.add_scalar('train/loss', train_loss, epoch)
+            writer.add_scalar('train/lr', lr, epoch)
 
         # calcola le metriche complessive dell'epoca per il training set
         ious, miou = metrics.compute_iou() # IoU di ciascuna classe, mIoU media
@@ -336,6 +353,14 @@ def main(cfg, save_dir):
                 print(log_data)
                 if use_wandb:
                     wandb.log(log_data)
+                # plateau scheduler and early stopping counters, updated before saving so that the
+                # checkpoint stores the state after this epoch
+                if hasattr(scheduler, 'step_metric') and scheduler.step_metric(miou):
+                    logger.info(f"Val mIoU plateau: LR reduced to {min(scheduler.get_lr()):.2e} (reduction {scheduler.num_reductions})")
+                if miou > es_best + es_min_delta:
+                    es_best, es_bad = miou, 0
+                else:
+                    es_bad += 1
                 # se la miou ottenuta supera la precedente best_mIoU => elimina i vecchi file di pesi salvati e aggiorna best_mIoU e best_epoch
                 if miou > best_mIoU:
                     prev_best_ckp = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_epoch{best_epoch}_{best_mIoU}_checkpoint.pth"
@@ -361,13 +386,18 @@ def main(cfg, save_dir):
                                 'loss': train_loss,
                                 'scheduler_state_dict': scheduler.state_dict(),
                                 'best_miou': best_mIoU,
+                                'early_stopping': {'best': es_best, 'bad': es_bad},
                                 }, cur_best_ckp)
                     write_checkpoint_meta(cur_best, checkpoint_meta(best_epoch, best_mIoU))
                     write_checkpoint_meta(cur_best_ckp, checkpoint_meta(best_epoch, best_mIoU))
                     for old in (prev_best, prev_best_ckp):
                         old_meta = f"{old}.meta.json"
                         if os.path.isfile(old_meta): os.remove(old_meta)
-                logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU}")
+                logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU} LR: {min(scheduler.get_lr()):.2e} Validations without gain: {es_bad}")
+                if es_patience is not None and es_bad >= es_patience:
+                    stop_reason = f'early stopping ({es_bad} validations without a val mIoU gain > {es_min_delta})'
+                    logger.info(f'Stopping at epoch {epoch+1}: {stop_reason}')
+                    break
 
     # conclusione e pulizia 
     if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
@@ -375,26 +405,41 @@ def main(cfg, save_dir):
         # Weights of the last epoch, to check whether training had converged (best vs last)
         last_path = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_last.pth"
         torch.save(model.module.state_dict(), last_path)
-        write_checkpoint_meta(last_path, checkpoint_meta(epochs, miou))
+        write_checkpoint_meta(last_path, checkpoint_meta(last_epoch, miou))
         logger.info(f'Saved last-epoch weights to {last_path}')
     pbar.close()
     end = time.gmtime(time.time() - start)
 
     # Stampa a schermo una tabella riassuntiva finale con la miglior mIoU e il tempo totale, 
     # e salva la lista di tutte le loss di training nel file train_loss.json.
+    summary = {
+        'best_miou': best_mIoU,
+        'best_epoch': best_epoch,
+        'last_epoch': last_epoch,
+        'stop_reason': stop_reason,
+        'lr_reductions': getattr(scheduler, 'num_reductions', None),
+        'training_time': time.strftime("%H:%M:%S", end),
+    }
     table = [
         ['Best mIoU', f"{best_mIoU:.2f}"],
-        ['Total Training Time', time.strftime("%H:%M:%S", end)]
+        ['Best epoch', best_epoch],
+        ['Last epoch', last_epoch],
+        ['Stop reason', stop_reason],
+        ['LR reductions', '-' if summary['lr_reductions'] is None else summary['lr_reductions']],
+        ['Total Training Time', summary['training_time']]
     ]
     logger.info(tabulate(table, numalign='right'))
     with open(os.path.join(save_dir, "train_loss.json"), "w") as f:
         json.dump(train_losses, f)
+    with open(os.path.join(save_dir, "train_summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='configs/mcubes_rgbadn.yaml', help='Configuration file to use')
     parser.add_argument('--seed', type=int, default=None, help='Overrides TRAIN.SEED (default 3407)')
+    parser.add_argument('--p-image', type=float, default=None, help='Overrides TRAIN.AUGMENTATION.PHOTOMETRIC.P_IMAGE (sweep runs)')
     args = parser.parse_args()
 
     train_losses = [] # lista globale per l'andamento della loss a ogni epoca
@@ -404,6 +449,12 @@ if __name__ == '__main__':
 
     if args.seed is not None:
         cfg['TRAIN']['SEED'] = args.seed
+    aug_cfg = cfg['TRAIN'].get('AUGMENTATION')
+    photometric = aug_cfg.get('PHOTOMETRIC') if isinstance(aug_cfg, dict) else None
+    if args.p_image is not None:
+        if not photometric:
+            parser.error('--p-image needs a config with TRAIN.AUGMENTATION.PHOTOMETRIC')
+        photometric['P_IMAGE'] = args.p_image
     fix_seeds(cfg['TRAIN'].get('SEED', 3407))
     setup_cudnn()
 
@@ -413,6 +464,9 @@ if __name__ == '__main__':
     model = cfg['MODEL']['BACKBONE']
     # exp_name = '_'.join([cfg['DATASET']['NAME'], model, modals])
     exp_name = cfg['WANDB_NAME']
+    if photometric and photometric.get('P_IMAGE') is not None:
+        exp_name = f"{exp_name}-p{round(float(photometric['P_IMAGE']) * 100):03d}"  # one folder per sweep point
+        cfg['WANDB_NAME'] = exp_name
     if args.seed is not None:
         exp_name = f"{exp_name}-seed{args.seed}"  # keep runs with different seeds in separate folders
         cfg['WANDB_NAME'] = exp_name
