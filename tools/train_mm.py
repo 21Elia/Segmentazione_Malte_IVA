@@ -101,6 +101,11 @@ def main(cfg, save_dir):
     es_patience = int(es_cfg['PATIENCE']) if 'PATIENCE' in es_cfg else None
     es_min_delta = float(es_cfg.get('MIN_DELTA', 0.0))
     es_best, es_bad = 0.0, 0
+    # Optional moving average of the val mIoU over the last VAL_SMOOTHING validations: the plateau
+    # scheduler and early stopping decide on it, so that one lucky epoch does not become the record
+    # to beat for many epochs. The best checkpoint is still chosen on the raw val mIoU.
+    val_smoothing = int(train_cfg.get('VAL_SMOOTHING', 1))
+    val_history = []
     if es_patience is not None and train_cfg['DDP']:
         raise NotImplementedError('EARLY_STOPPING is decided on rank 0 only and is not supported with DDP')
     stop_reason = 'max epochs'
@@ -198,6 +203,8 @@ def main(cfg, save_dir):
     scheduler = get_scheduler(sched_cfg['NAME'], optimizer, int((epochs+1)*iters_per_epoch), sched_cfg.get('POWER', 0.9), iters_per_epoch * sched_cfg['WARMUP'], sched_cfg['WARMUP_RATIO'], plateau_cfg=sched_cfg)
     if es_patience is not None:
         logger.info(f'Early stopping: patience {es_patience} validations, min delta {es_min_delta}, at most {epochs} epochs')
+    if val_smoothing > 1:
+        logger.info(f'Plateau and early stopping on the mean val mIoU of the last {val_smoothing} validations')
 
     # --- definisce come campionare i dati per il training---
     if train_cfg['DDP']: 
@@ -223,6 +230,7 @@ def main(cfg, save_dir):
         best_epoch = resume_checkpoint['epoch']   # the resume checkpoint is the best one: its files are replaced at the next record
         es_state = resume_checkpoint.get('early_stopping', {})
         es_best, es_bad = es_state.get('best', es_best), es_state.get('bad', es_bad)
+        val_history = es_state.get('history', val_history)
         del resume_checkpoint
 
     # istanzia i DataLoader per il training set e validation set
@@ -343,10 +351,12 @@ def main(cfg, save_dir):
                     wandb.log(log_data)
                 # plateau scheduler and early stopping counters, updated before saving so that the
                 # checkpoint stores the state after this epoch
-                if hasattr(scheduler, 'step_metric') and scheduler.step_metric(miou):
+                val_history = (val_history + [miou])[-val_smoothing:]
+                smoothed = sum(val_history) / len(val_history)
+                if hasattr(scheduler, 'step_metric') and scheduler.step_metric(smoothed):
                     logger.info(f"Val mIoU plateau: LR reduced to {min(scheduler.get_lr()):.2e} (reduction {scheduler.num_reductions})")
-                if miou > es_best + es_min_delta:
-                    es_best, es_bad = miou, 0
+                if smoothed > es_best + es_min_delta:
+                    es_best, es_bad = smoothed, 0
                 else:
                     es_bad += 1
                 # se la miou ottenuta supera la precedente best_mIoU => elimina i vecchi file di pesi salvati e aggiorna best_mIoU e best_epoch
@@ -374,16 +384,16 @@ def main(cfg, save_dir):
                                 'loss': train_loss,
                                 'scheduler_state_dict': scheduler.state_dict(),
                                 'best_miou': best_mIoU,
-                                'early_stopping': {'best': es_best, 'bad': es_bad},
+                                'early_stopping': {'best': es_best, 'bad': es_bad, 'history': val_history},
                                 }, cur_best_ckp)
                     write_checkpoint_meta(cur_best, checkpoint_meta(best_epoch, best_mIoU))
                     write_checkpoint_meta(cur_best_ckp, checkpoint_meta(best_epoch, best_mIoU))
                     for old in (prev_best, prev_best_ckp):
                         old_meta = f"{old}.meta.json"
                         if os.path.isfile(old_meta): os.remove(old_meta)
-                logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU} LR: {min(scheduler.get_lr()):.2e} Validations without gain: {es_bad}")
+                logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU} LR: {min(scheduler.get_lr()):.2e} Validations without gain: {es_bad}" + (f" Smoothed mIoU: {smoothed:.2f}" if val_smoothing > 1 else ""))
                 if es_patience is not None and es_bad >= es_patience:
-                    stop_reason = f'early stopping ({es_bad} validations without a val mIoU gain > {es_min_delta})'
+                    stop_reason = f'early stopping ({es_bad} validations without a val mIoU gain > {es_min_delta}' + (f', mean of the last {val_smoothing})' if val_smoothing > 1 else ')')
                     logger.info(f'Stopping at epoch {epoch+1}: {stop_reason}')
                     break
 
@@ -406,6 +416,7 @@ def main(cfg, save_dir):
         'last_epoch': last_epoch,
         'stop_reason': stop_reason,
         'lr_reductions': getattr(scheduler, 'num_reductions', None),
+        'val_smoothing': val_smoothing,
         'training_time': time.strftime("%H:%M:%S", end),
     }
     table = [

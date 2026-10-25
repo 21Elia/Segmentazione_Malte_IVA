@@ -36,6 +36,7 @@ TRAIN:
   EARLY_STOPPING:
     PATIENCE    : 30                      # validations without a gain > MIN_DELTA before stopping
     MIN_DELTA   : 0.1                     # mIoU points
+  VAL_SMOOTHING : 5                       # plateau and early stopping on the mean val mIoU of the last 5 epochs (best checkpoint on the raw value)
   AUGMENTATION  :
     GEOMETRIC:
       HFLIP: 0.5
