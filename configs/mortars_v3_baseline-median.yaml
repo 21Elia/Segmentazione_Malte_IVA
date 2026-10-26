@@ -67,7 +67,7 @@ SCHEDULER:
 
 EVAL:
   # Fill in after training: the best checkpoint saved in output/campaign3/MMSFormer/MMSF-V3-BASELINE-MED/
-  MODEL_PATH    : ''
+  MODEL_PATH    : 'output/campaign3/MMSFormer/MMSF-V3-BASELINE-MED/MMSFormer_MMSFormer-B3_MORTARS_epoch173_80.62.pth'
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
   SAVE_PREDICTIONS : true
@@ -81,7 +81,7 @@ EVAL:
     SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
 
 TEST:
-  MODEL_PATH    : ''
+  MODEL_PATH    : 'output/campaign3/MMSFormer/MMSF-V3-BASELINE-MED/MMSFormer_MMSFormer-B3_MORTARS_epoch173_80.62.pth'
   IMAGE_SIZE    : [512, 512]
   VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_baseline_med'
   FILE          : 'data/mortars_v2'
