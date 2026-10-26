@@ -1,13 +1,13 @@
-# Sweep campaign (v3) - Baseline with moving average: same as mortars_v3_baseline.yaml (ImageNet backbone,
+# Sweep campaign (v3) - Baseline with moving median: same as mortars_v3_baseline.yaml (ImageNet backbone,
 # full geometric augmentation, no photometric augmentation, warmup + plateau LR, early stopping), but the
-# plateau scheduler and early stopping decide on the mean val mIoU of the last 5 epochs (VAL_SMOOTHING),
-# as in the Exp 2 / Exp 3 v3 configs. Run folder: output/campaign3/MMSFormer/MMSF-V3-BASELINE-MA.
+# plateau scheduler and early stopping decide on the median val mIoU of the last 5 epochs (VAL_SMOOTHING,
+# VAL_SMOOTHING_MODE), as in the ablation configs. Run folder: output/campaign3/MMSFormer/MMSF-V3-BASELINE-MED.
 DEVICE          : cuda
 SAVE_DIR        : 'output/campaign3/MMSFormer'   # every output of the third campaign under output/campaign3
 GPUs            : 1
 GPU_IDs         : [0]
 USE_WANDB       : false
-WANDB_NAME      : 'MMSF-V3-BASELINE-MA'
+WANDB_NAME      : 'MMSF-V3-BASELINE-MED'
 
 MODEL:
   NAME          : MMSFormer
@@ -36,7 +36,8 @@ TRAIN:
   EARLY_STOPPING:
     PATIENCE    : 30                      # validations without a gain > MIN_DELTA before stopping
     MIN_DELTA   : 0.1                     # mIoU points
-  VAL_SMOOTHING : 5                       # plateau and early stopping on the mean val mIoU of the last 5 epochs (best checkpoint on the raw value)
+  VAL_SMOOTHING : 5                       # plateau and early stopping on the val mIoU of the last 5 epochs (best checkpoint on the raw value)
+  VAL_SMOOTHING_MODE : median            # moving median: up to 2 collapsed epochs in the window are ignored
   AUGMENTATION  :
     GEOMETRIC:
       HFLIP: 0.5                          # p=0.5
@@ -65,15 +66,15 @@ SCHEDULER:
   MIN_LR        : 0.000001
 
 EVAL:
-  # Fill in after training: the best checkpoint saved in output/campaign3/MMSFormer/MMSF-V3-BASELINE-MA/
+  # Fill in after training: the best checkpoint saved in output/campaign3/MMSFormer/MMSF-V3-BASELINE-MED/
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
   SAVE_PREDICTIONS : true
   ERROR_THRESHOLD  : -1.0
   SAVE_CONFUSION   : true
-  VIS_SAVE_DIR     : 'output/campaign3/results/v3_baseline_ma'
-  CONFUSION_DIR    : 'output/campaign3/confusion/v3_baseline_ma'
+  VIS_SAVE_DIR     : 'output/campaign3/results/v3_baseline_med'
+  CONFUSION_DIR    : 'output/campaign3/confusion/v3_baseline_med'
   MSF:
     ENABLE      : false
     FLIP        : true
@@ -82,6 +83,6 @@ EVAL:
 TEST:
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
-  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_baseline_ma'
+  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_baseline_med'
   FILE          : 'data/mortars_v2'
   OVERLAY       : true

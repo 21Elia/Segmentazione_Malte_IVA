@@ -28,6 +28,7 @@ import wandb
 from semseg.metrics import Metrics
 import gc
 import json
+import statistics
 
 
 
@@ -101,10 +102,16 @@ def main(cfg, save_dir):
     es_patience = int(es_cfg['PATIENCE']) if 'PATIENCE' in es_cfg else None
     es_min_delta = float(es_cfg.get('MIN_DELTA', 0.0))
     es_best, es_bad = 0.0, 0
-    # Optional moving average of the val mIoU over the last VAL_SMOOTHING validations: the plateau
+    # Optional smoothing of the val mIoU over the last VAL_SMOOTHING validations: the plateau
     # scheduler and early stopping decide on it, so that one lucky epoch does not become the record
-    # to beat for many epochs. The best checkpoint is still chosen on the raw val mIoU.
+    # to beat for many epochs. VAL_SMOOTHING_MODE 'mean' (moving average) or 'median' (moving
+    # median, which also ignores up to N//2 collapsed epochs in the window instead of being pulled
+    # down by them). The best checkpoint is still chosen on the raw val mIoU.
     val_smoothing = int(train_cfg.get('VAL_SMOOTHING', 1))
+    val_smoothing_mode = str(train_cfg.get('VAL_SMOOTHING_MODE', 'mean')).lower()
+    if val_smoothing_mode not in ('mean', 'median'):
+        raise ValueError(f"TRAIN.VAL_SMOOTHING_MODE must be 'mean' or 'median', got {val_smoothing_mode!r}")
+    smooth = statistics.median if val_smoothing_mode == 'median' else statistics.fmean
     val_history = []
     if es_patience is not None and train_cfg['DDP']:
         raise NotImplementedError('EARLY_STOPPING is decided on rank 0 only and is not supported with DDP')
@@ -204,7 +211,7 @@ def main(cfg, save_dir):
     if es_patience is not None:
         logger.info(f'Early stopping: patience {es_patience} validations, min delta {es_min_delta}, at most {epochs} epochs')
     if val_smoothing > 1:
-        logger.info(f'Plateau and early stopping on the mean val mIoU of the last {val_smoothing} validations')
+        logger.info(f'Plateau and early stopping on the {val_smoothing_mode} val mIoU of the last {val_smoothing} validations')
 
     # --- definisce come campionare i dati per il training---
     if train_cfg['DDP']: 
@@ -352,7 +359,7 @@ def main(cfg, save_dir):
                 # plateau scheduler and early stopping counters, updated before saving so that the
                 # checkpoint stores the state after this epoch
                 val_history = (val_history + [miou])[-val_smoothing:]
-                smoothed = sum(val_history) / len(val_history)
+                smoothed = smooth(val_history)
                 if hasattr(scheduler, 'step_metric') and scheduler.step_metric(smoothed):
                     logger.info(f"Val mIoU plateau: LR reduced to {min(scheduler.get_lr()):.2e} (reduction {scheduler.num_reductions})")
                 if smoothed > es_best + es_min_delta:
@@ -393,7 +400,7 @@ def main(cfg, save_dir):
                         if os.path.isfile(old_meta): os.remove(old_meta)
                 logger.info(f"Current epoch:{epoch} mIoU: {miou} Best mIoU: {best_mIoU} LR: {min(scheduler.get_lr()):.2e} Validations without gain: {es_bad}" + (f" Smoothed mIoU: {smoothed:.2f}" if val_smoothing > 1 else ""))
                 if es_patience is not None and es_bad >= es_patience:
-                    stop_reason = f'early stopping ({es_bad} validations without a val mIoU gain > {es_min_delta}' + (f', mean of the last {val_smoothing})' if val_smoothing > 1 else ')')
+                    stop_reason = f'early stopping ({es_bad} validations without a val mIoU gain > {es_min_delta}' + (f', {val_smoothing_mode} of the last {val_smoothing})' if val_smoothing > 1 else ')')
                     logger.info(f'Stopping at epoch {epoch+1}: {stop_reason}')
                     break
 
@@ -417,6 +424,7 @@ def main(cfg, save_dir):
         'stop_reason': stop_reason,
         'lr_reductions': getattr(scheduler, 'num_reductions', None),
         'val_smoothing': val_smoothing,
+        'val_smoothing_mode': val_smoothing_mode,
         'training_time': time.strftime("%H:%M:%S", end),
     }
     table = [
