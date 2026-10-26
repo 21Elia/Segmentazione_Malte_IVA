@@ -32,12 +32,14 @@ Usage (run from the repository root):
     python tools/eval_ood_gt.py                                   # first-campaign models
     python tools/eval_ood_gt.py --experiments v2_baseline v2_exp1   # second-campaign models
     python tools/eval_ood_gt.py --domains UNITO_B --experiments exp1 --sources recon
+    python tools/eval_ood_gt.py --experiments v3_baseline --output-dir output/campaign3/gt_ood   # third campaign
 """
 
 import os
 import sys
 import csv
 import json
+import glob
 import argparse
 import numpy as np
 import cv2
@@ -94,6 +96,12 @@ EXPERIMENTS = {
     'v2_exp4b':    {'root': 'output/inference_nuove/inference_nuove_v2_exp4b', 'labels_swapped': False, 'sources': _V2_SOURCES},
 }
 FIRST_CAMPAIGN = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
+# Third campaign: one experiment per run folder output/campaign3/MMSFormer/MMSF-V3-*, with the keys of
+# tools/run_all_inferences_softmax.py (MMSF-V3-EXP2-p050 -> 'v3_exp2_p050')
+for _run in sorted(glob.glob(os.path.join('output', 'campaign3', 'MMSFormer', 'MMSF-V3-*'))):
+    _key = os.path.basename(_run).lower().replace('mmsf-', '', 1).replace('-', '_')
+    EXPERIMENTS[_key] = {'root': f'output/campaign3/inference_nuove/inference_nuove_{_key}',
+                         'labels_swapped': False, 'sources': _V2_SOURCES}
 
 
 def green_to_aggregate(green, green_class, labels_swapped):

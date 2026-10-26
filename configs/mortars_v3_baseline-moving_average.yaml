@@ -1,0 +1,87 @@
+# Sweep campaign (v3) - Baseline with moving average: same as mortars_v3_baseline.yaml (ImageNet backbone,
+# full geometric augmentation, no photometric augmentation, warmup + plateau LR, early stopping), but the
+# plateau scheduler and early stopping decide on the mean val mIoU of the last 5 epochs (VAL_SMOOTHING),
+# as in the Exp 2 / Exp 3 v3 configs. Run folder: output/campaign3/MMSFormer/MMSF-V3-BASELINE-MA.
+DEVICE          : cuda
+SAVE_DIR        : 'output/campaign3/MMSFormer'   # every output of the third campaign under output/campaign3
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-V3-BASELINE-MA'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'   # ImageNet backbone only
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars_v2'       # labels regenerated with the fixed preprocess.py (black mask pixels = class)
+  IGNORE_LABEL  : 3                       # alignment padding
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates
+  NORMALIZATION : imagenet                # same for training, validation and inference (D1)
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 4
+  EPOCHS        : 300                     # upper bound: early stopping decides when to stop
+  EVAL_START    : 0
+  EVAL_INTERVAL : 1                       # the plateau and early stopping counters count validations
+  AMP           : false                   # FP32: the old AMP baseline collapsed for several epochs
+  DDP           : false
+  WEIGHTED_RANDOM_SAMPLER : false
+  SEED          : 3407                    # override with --seed for a second run
+  EARLY_STOPPING:
+    PATIENCE    : 30                      # validations without a gain > MIN_DELTA before stopping
+    MIN_DELTA   : 0.1                     # mIoU points
+  VAL_SMOOTHING : 5                       # plateau and early stopping on the mean val mIoU of the last 5 epochs (best checkpoint on the raw value)
+  AUGMENTATION  :
+    GEOMETRIC:
+      HFLIP: 0.5                          # p=0.5
+      VFLIP: 0.5                          # p=0.5
+      ROT90: 0.5                          # p=0.5
+      ROTATE: {DEGREES: 15, P: 0.2}       # +-15° rotation with p=0.2
+      RESIZED_CROP: {SCALE: [0.5, 2.0]}   # probability=1 
+
+LOSS:
+  NAME          : OhemCrossEntropy
+  CLS_WEIGHTS   : false
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5]
+
+OPTIMIZER:
+  NAME          : adamw
+  LR            : 0.0001
+  WEIGHT_DECAY  : 0.1
+
+SCHEDULER:
+  NAME          : warmupplateau           # linear warmup per iteration, then ReduceLROnPlateau on the val mIoU
+  WARMUP        : 10                      # epochs, from WARMUP_RATIO * LR to LR
+  WARMUP_RATIO  : 0.1
+  FACTOR        : 0.5                     # LR multiplier at each plateau
+  PATIENCE      : 8                       # validations without a gain > THRESHOLD before reducing the LR
+  THRESHOLD     : 0.1                     # mIoU points (absolute)
+  MIN_LR        : 0.000001
+
+EVAL:
+  # Fill in after training: the best checkpoint saved in output/campaign3/MMSFormer/MMSF-V3-BASELINE-MA/
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD  : -1.0
+  SAVE_CONFUSION   : true
+  VIS_SAVE_DIR     : 'output/campaign3/results/v3_baseline_ma'
+  CONFUSION_DIR    : 'output/campaign3/confusion/v3_baseline_ma'
+  MSF:
+    ENABLE      : false
+    FLIP        : true
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+
+TEST:
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_baseline_ma'
+  FILE          : 'data/mortars_v2'
+  OVERLAY       : true

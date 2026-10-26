@@ -63,6 +63,12 @@ MODELS_REGISTRY = {
     'v2_exp2':     {'run_dir': 'output/MMSFormer/MMSF-V2-EXP2'},
     'v2_exp4b':    {'run_dir': 'output/MMSFormer/MMSF-V2-EXP4B'},
 }
+# Third campaign: every run folder output/campaign3/MMSFormer/MMSF-V3-* is registered automatically
+# (MMSF-V3-EXP2-p050 -> 'v3_exp2_p050'); its predictions are written under output/campaign3/
+CAMPAIGN3_RUNS = 'output/campaign3/MMSFormer'
+for _run in sorted(glob.glob(os.path.join(CAMPAIGN3_RUNS, 'MMSF-V3-*'))):
+    _key = os.path.basename(_run).lower().replace('mmsf-', '', 1).replace('-', '_')
+    MODELS_REGISTRY[_key] = {'run_dir': _run, 'outputs': 'output/campaign3'}
 FIRST_CAMPAIGN = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
 
 DOMAINS_REGISTRY = {
@@ -170,6 +176,8 @@ def main():
                         help="Domains to evaluate (e.g. 1_SCALA UNITO_B ARCHEO_02)")
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help="Execution device (cuda or cpu)")
+    parser.add_argument('--save-softmax', action='store_true',
+                        help="Also save the float16 softmax maps (.npy, several GB): only needed for entropy analyses")
     parser.add_argument('--tta', action='store_true',
                         help="Enable the 8-transform D4 test-time augmentation (VPT + averaged softmax, saved to masks_tta/ and softmax_tta/)")
     args = parser.parse_args()
@@ -208,7 +216,11 @@ def main():
                 continue
 
             dom_info = DOMAINS_REGISTRY[dom_key]
-            vis_dir = Path(dom_info['vis_save_dir'].format(exp=model_key)) / 'MMSFormer-B3'
+            vis_save_dir = dom_info['vis_save_dir'].format(exp=model_key)
+            outputs = MODELS_REGISTRY[model_key].get('outputs')
+            if outputs:
+                vis_save_dir = vis_save_dir.replace('output/', outputs + '/', 1)
+            vis_dir = Path(vis_save_dir) / 'MMSFormer-B3'
 
             # Single-pass and TTA outputs go to separate folders, so a --tta run never
             # overwrites the single-pass predictions (first-campaign masks/ and softmax/
@@ -219,7 +231,8 @@ def main():
             vpt_dir = vis_dir / 'vpt'
 
             os.makedirs(masks_dir, exist_ok=True)
-            os.makedirs(softmax_dir, exist_ok=True)
+            if args.save_softmax:
+                os.makedirs(softmax_dir, exist_ok=True)
             if args.tta:
                 os.makedirs(vpt_dir, exist_ok=True)
 
@@ -272,7 +285,8 @@ def main():
 
                     # Save Softmax Probability Map (.npy float16)
                     softmax_np = probs.squeeze(0).cpu().half().numpy()
-                    np.save(softmax_dir / f"{stem}.npy", softmax_np)
+                    if args.save_softmax:
+                        np.save(softmax_dir / f"{stem}.npy", softmax_np)
 
                     # Update / save clean binary mask
                     pred_labels = probs.argmax(dim=1).squeeze(0).cpu().to(int)
@@ -282,7 +296,7 @@ def main():
             elapsed = time.time() - start_t
             speed_str = f"({len(files)/elapsed:.1f} patch/s)" if elapsed > 0 else ""
             print(f"  Completed in {elapsed:.1f}s {speed_str}".strip())
-            print(f"  Saved Softmax to: {softmax_dir}")
+            print(f"  Saved masks to: {masks_dir}" + (f" and softmax to: {softmax_dir}" if args.save_softmax else ""))
             if args.tta:
                 print(f"  Saved VPT to    : {vpt_dir}")
 
