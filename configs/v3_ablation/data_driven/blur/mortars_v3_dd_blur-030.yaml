@@ -1,0 +1,103 @@
+# Ablation (v3) - data-driven one-at-a-time: blur at P = 0.3, every other op at P = 0.6. Baseline v3 + data-driven asymmetric photometric augmentation
+# (ranges of the v2 Exp4B, see configs/mortars_v2_exp4b.yaml for their derivation and deliberate caps).
+# An image pair is augmented with probability P_IMAGE = p1 = 0.8; every op then fires independently with
+# P = 0.6, except blur (P = 0.3) (no at-least-one resampling). Run folder: MMSF-V3-DD-BLUR-030-p080[-seedN].
+DEVICE          : cuda
+SAVE_DIR        : 'output/campaign3/MMSFormer'   # every output of the third campaign under output/campaign3
+GPUs            : 1
+GPU_IDs         : [0]
+USE_WANDB       : false
+WANDB_NAME      : 'MMSF-V3-DD-BLUR-030'
+
+MODEL:
+  NAME          : MMSFormer
+  BACKBONE      : MMSFormer-B3
+  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'   # ImageNet backbone only
+  RESUME        : ''
+
+DATASET:
+  NAME          : MORTARS
+  ROOT          : 'data/mortars_v2'       # labels regenerated with the fixed preprocess.py (black mask pixels = class)
+  IGNORE_LABEL  : 3                       # alignment padding
+  MODALS        : ['paralleli', 'incrociati']
+  NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates
+  NORMALIZATION : imagenet                # same for training, validation and inference (D1)
+
+TRAIN:
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 4
+  EPOCHS        : 300                     # upper bound: early stopping decides when to stop
+  EVAL_START    : 0
+  EVAL_INTERVAL : 1                       # the plateau and early stopping counters count validations
+  AMP           : false                   # FP32: the old AMP baseline collapsed for several epochs
+  DDP           : false
+  WEIGHTED_RANDOM_SAMPLER : false
+  SEED          : 3407                    # override with --seed for a second run
+  EARLY_STOPPING:
+    PATIENCE    : 30                      # validations without a gain > MIN_DELTA before stopping
+    MIN_DELTA   : 0.1                     # mIoU points
+  VAL_SMOOTHING : 5                       # plateau and early stopping on the val mIoU of the last 5 epochs (best checkpoint on the raw value)
+  VAL_SMOOTHING_MODE : median            # moving median: up to 2 collapsed epochs in the window are ignored
+  AUGMENTATION  :
+    GEOMETRIC:
+      HFLIP: 0.5
+      VFLIP: 0.5
+      ROT90: 0.5
+      ROTATE: {DEGREES: 15, P: 0.2}
+      RESIZED_CROP: {SCALE: [0.5, 2.0]}
+    PHOTOMETRIC:
+      P_IMAGE: 0.8                        # p1, fixed for the whole ablation
+      AT_LEAST_ONE: false                 # each op fires with P_IMAGE * P; all P = 0 would be the Baseline
+      SYNC: false                         # parameters drawn independently for NP and NX
+      paralleli:                          # every op at 0.6, blur at 0.3
+        - {OP: gamma,      RANGE: [0.50, 2.34], LOG: true, P: 0.6}
+        - {OP: contrast,   RANGE: [0.63, 1.13], LOG: true, P: 0.6}
+        - {OP: saturation, RANGE: [1.00, 1.80], LOG: true, P: 0.6}
+        - {OP: noise,      SIGMA: [0.0, 3.0],              P: 0.6}
+      incrociati:
+        - {OP: gamma,      RANGE: [1.00, 1.35], LOG: true, P: 0.6}
+        - {OP: contrast,   RANGE: [0.63, 1.00], LOG: true, P: 0.6}
+        - {OP: saturation, RANGE: [0.65, 1.40], LOG: true, P: 0.6}
+        - {OP: blur,       SIGMA: [0.35, 0.55],            P: 0.3}
+        - {OP: noise,      SIGMA: [0.0, 4.7],              P: 0.6}
+
+LOSS:
+  NAME          : OhemCrossEntropy
+  CLS_WEIGHTS   : false
+  CLASS_WEIGHTS : [1.0, 8.0, 2.5]
+
+OPTIMIZER:
+  NAME          : adamw
+  LR            : 0.0001
+  WEIGHT_DECAY  : 0.1
+
+SCHEDULER:
+  NAME          : warmupplateau           # linear warmup per iteration, then ReduceLROnPlateau on the val mIoU
+  WARMUP        : 10                      # epochs, from WARMUP_RATIO * LR to LR
+  WARMUP_RATIO  : 0.1
+  FACTOR        : 0.5                     # LR multiplier at each plateau
+  PATIENCE      : 8                       # validations without a gain > THRESHOLD before reducing the LR
+  THRESHOLD     : 0.1                     # mIoU points (absolute)
+  MIN_LR        : 0.000001
+
+EVAL:
+  # Fill in after training (or pass --model-path): the best checkpoint in output/campaign3/MMSFormer/MMSF-V3-DD-BLUR-030-p080-seedN/
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  BATCH_SIZE    : 1
+  SAVE_PREDICTIONS : true
+  ERROR_THRESHOLD  : -1.0
+  SAVE_CONFUSION   : true
+  VIS_SAVE_DIR     : 'output/campaign3/results/v3_dd_blur_030'
+  CONFUSION_DIR    : 'output/campaign3/confusion/v3_dd_blur_030'
+  MSF:
+    ENABLE      : false
+    FLIP        : true
+    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+
+TEST:
+  MODEL_PATH    : ''
+  IMAGE_SIZE    : [512, 512]
+  VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_dd_blur_030'
+  FILE          : 'data/mortars_v2'
+  OVERLAY       : true
