@@ -75,7 +75,7 @@ SCHEDULER:
 
 EVAL:
   # Fill in after training (or pass --model-path): the best checkpoint in output/campaign3/MMSFormer/MMSF-V3-GEN-060-p080-seedN/
-  MODEL_PATH    : ''
+  MODEL_PATH  : 'output/campaign3/MMSFormer/MMSF-V3-GEN-060-p080/MMSFormer_MMSFormer-B3_MORTARS_epoch160_79.34.pth'
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
   SAVE_PREDICTIONS : true
@@ -89,7 +89,7 @@ EVAL:
     SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
 
 TEST:
-  MODEL_PATH    : ''
+  MODEL_PATH  : 'output/campaign3/MMSFormer/MMSF-V3-GEN-060-p080/MMSFormer_MMSFormer-B3_MORTARS_epoch160_79.34.pth'
   IMAGE_SIZE    : [512, 512]
   VIS_SAVE_DIR  : 'output/campaign3/inference_indomain/v3_gen_060'
   FILE          : 'data/mortars_v2'
