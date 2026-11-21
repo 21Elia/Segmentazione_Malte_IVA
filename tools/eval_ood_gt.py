@@ -82,6 +82,8 @@ _OLD_SOURCES = {
 _V2_SOURCES = {
     'single': {'kind': 'masks', 'subdir': 'masks', 'green_class': 1},
     'tta':    {'kind': 'masks', 'subdir': 'masks_tta', 'green_class': 1},
+    # inverse photometric correction (run_all_inferences_softmax.py --inverse-correction)
+    'corr':   {'kind': 'masks', 'subdir': 'masks_corr', 'green_class': 1},
 }
 EXPERIMENTS = {
     'baseline': {'root': 'output/inference_nuove/inference_nuove_baseline', 'labels_swapped': True, 'sources': _OLD_SOURCES},

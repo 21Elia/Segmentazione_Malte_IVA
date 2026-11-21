@@ -13,6 +13,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import glob
+import json
 import time
 import argparse
 import numpy as np
@@ -168,6 +169,21 @@ def open_img(file_path: str):
     return (TF.to_tensor(pil_img) * 255).to(torch.uint8)
 
 
+def inverse_correction(img: torch.Tensor, p: dict):
+    """Inverse photometric correction target -> Source of tools/fit_inverse_correction.py.
+
+    Same functions and order as tools/quantify_domain_shift.apply_tone: gamma -> contrast -> saturation
+    on the uint8 RGB patch, before resizing and normalization.
+    """
+    if p['gamma'] != 1.0:
+        img = TF.adjust_gamma(img, p['gamma'])
+    if p['contrast'] != 1.0:
+        img = TF.adjust_contrast(img, p['contrast'])
+    if p['saturation'] != 1.0:
+        img = TF.adjust_saturation(img, p['saturation'])
+    return img
+
+
 def main():
     parser = argparse.ArgumentParser(description="Batch Runner for Softmax and TTA Probability Extraction")
     parser.add_argument('--models', nargs='+', default=FIRST_CAMPAIGN,
@@ -180,7 +196,15 @@ def main():
                         help="Also save the float16 softmax maps (.npy, several GB): only needed for entropy analyses")
     parser.add_argument('--tta', action='store_true',
                         help="Enable the 8-transform D4 test-time augmentation (VPT + averaged softmax, saved to masks_tta/ and softmax_tta/)")
+    parser.add_argument('--inverse-correction', default=None, metavar='PARAMS_JSON',
+                        help="Apply the inverse photometric correction of tools/fit_inverse_correction.py "
+                             "(inverse_correction_params.json) to every NP/NX patch; outputs go to masks_corr/ "
+                             "(masks_tta_corr/ with --tta), so the uncorrected predictions are kept")
     args = parser.parse_args()
+    correction = None
+    if args.inverse_correction:
+        with open(args.inverse_correction, encoding='utf-8') as f:
+            correction = json.load(f)['params']
 
     device = torch.device(args.device)
     palette = torch.tensor([[0, 0, 0], [0, 255, 0]])  # Class 0: Binder (black), Class 1: Aggregates (green)
@@ -191,6 +215,7 @@ def main():
     print(f"Domains Selected: {args.domains}")
     print(f"Execution Device: {device}")
     print(f"TTA C4 Mode     : {'ENABLED (K=8 passes per patch for VPT)' if args.tta else 'STANDARD (1 pass with softmax)'}")
+    print(f"Inverse correct.: {args.inverse_correction or 'none'}")
     print("=" * 80)
 
     for model_key in args.models:
@@ -216,6 +241,9 @@ def main():
                 continue
 
             dom_info = DOMAINS_REGISTRY[dom_key]
+            if correction is not None and dom_key not in correction:
+                print(f"  [Skip] No inverse-correction parameters for domain {dom_key}")
+                continue
             vis_save_dir = dom_info['vis_save_dir'].format(exp=model_key)
             outputs = MODELS_REGISTRY[model_key].get('outputs')
             if outputs:
@@ -225,10 +253,10 @@ def main():
             # Single-pass and TTA outputs go to separate folders, so a --tta run never
             # overwrites the single-pass predictions (first-campaign masks/ and softmax/
             # folders were overwritten by the TTA run).
-            suffix = '_tta' if args.tta else ''
+            suffix = ('_tta' if args.tta else '') + ('_corr' if correction is not None else '')
             masks_dir = vis_dir / f'masks{suffix}'
             softmax_dir = vis_dir / f'softmax{suffix}'
-            vpt_dir = vis_dir / 'vpt'
+            vpt_dir = vis_dir / f"vpt{'_corr' if correction is not None else ''}"
 
             os.makedirs(masks_dir, exist_ok=True)
             if args.save_softmax:
@@ -253,6 +281,9 @@ def main():
 
                     img1_raw = open_img(file_p)
                     img2_raw = open_img(file_x)
+                    if correction is not None:
+                        img1_raw = inverse_correction(img1_raw, correction[dom_key]['NP'])
+                        img2_raw = inverse_correction(img2_raw, correction[dom_key]['NX'])
 
                     img1_t = preprocess(img1_raw).to(device)
                     img2_t = preprocess(img2_raw).to(device)
