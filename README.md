@@ -1,218 +1,157 @@
-**MMSFormer - Segmentazione delle malte**
+# Multimodal segmentation of historical mortars
 
-Questo progetto estende il modello MMSFormer per affrontare il problema della segmentazione delle malte, con immagini acquisite in due modalità: paralleli e incrociati.
+Semantic segmentation of thin sections of historical mortars into **binder** and **aggregates**, from
+plane-polarized (NP, *Nicols Paralleli*) and cross-polarized (NX, *Nicols Incrociati*) images, with
+[MMSFormer](https://github.com/csiplab/MMSFormer)-B3. The code accompanies the bachelor's thesis
+*Segmentazione Semantica Multimodale di Malte Storiche: Mitigazione del Domain Shift tramite Vision
+Transformer e Data-Driven Augmentation* (Elia Awad, Università degli Studi di Firenze, 2026). It starts from the
+project of L. Notari for the Image and Video Analysis course, itself based on the original MMSFormer code
+(see `README_ORIGINALE.md`).
 
-Per poter addestrare il modello, come viene spiegato nel README originale di MMSFormer presente nella directory del progetto, è necessario scaricare i pesi preaddestrati del backbone SegFormere (disponibili al link: https://drive.google.com/drive/folders/10XgSW8f7ghRs9fJ0dE-EV8G2E_guVsT5) e inserirli nella seguente struttura:
+The thesis studies the **domain shift** between the ten annotated historical sections (Source) and three
+new sections (`1_SCALA`, `UNITO_B`, `ARCHEO_02`): it measures it, compares a generic and a data-driven
+photometric augmentation through an ablation with several seeds, evaluates the models on the annotated
+crops of `1_SCALA` and `UNITO_B`, and tests an inverse photometric correction of the new sections at
+inference time.
 
-```
-checkpoints/pretrained/segformer
-├── mit_b0.pth
-├── mit_b1.pth
-├── mit_b2.pth
-├── mit_b3.pth
-├── mit_b4.pth
-└── mit_b5.pth
-```
-
-Nel file di configurazione mortars.yaml si sceglie quale variante del backbone utilizzare e il relativo file di pesi:
-
-```
-BACKBONE : MMSFormer-B3                   # variante del modello
-PRETRAINED: 'checkpoints/pretrained/segformer/mit_b3.pth'   # pesi del backbone
-```
-
----
-
-## Modifiche principali rispetto al modello originale
-
-1. **Dataset personalizzato**
-
-   * È stato creato un nuovo file `dataset.py` nella cartella `semseg/dataset`.
-   * Permette il caricamento del dataset delle malte con le modalità: paralleli e incrociati.
-
-2. **Gestione della distribuzione non omogenea delle classi**
-
-   * Possibilità di usare **Weighted Random Sampler** durante il training.
-
-     * I pesi vengono calcolati **automaticamente** in base alla frequenza delle classi.
-     * Attivabile nel file di configurazione con:
-
-       ```
-       WEIGHTED_RANDOM_SAMPLER: true
-       ```
-   * In alternativa, è possibile assegnare pesi personalizzati alle classi nel calcolo della loss.
-
-     * Attivabile con:
-
-       ```
-       CLS_WEIGHTS: true
-       CLASS_WEIGHTS: [w1, w2, w3]  
-       ```
-
-       I pesi delle classi sono da impostare manualmente tenendo conto che le classi rappresentano rispettivamente:
-
-       * Legante: 70.46%
-       * Porosità: 3.62%
-       * Aggregati: 25.92%
-
-   * Infine, è possibile addestrare il modello focalizzandosi su legante e aggregati senza considerare la porosità impostando nel file di configurazione:
-
-       ```
-       NUM_CLASSES : 2  
-       ```
-     
-3. **Funzionalità di testing**
-
-   * Generazione di un file con **mappe delle predizioni** sul dataset di test.
-   * Salvataggio delle immagini originali, label associate alle predizioni in un’unica cartella.
-   * Possibilità di generare la **confusion matrix**.
-   * Attivabili tramite configurazione:
-
-     ```
-     SAVE_PREDICTIONS: true
-     SAVE_CONFUSION: true
-     ```
-   * Cartelle di salvataggio:
-
-     ```
-     VIS_SAVE_DIR: 'data/mortars_results'
-     CONFUSION_DIR: 'data/confusion_matrix'
-     ```
-
----
-
-## Comandi principali
-
-### Training
-
-Per allenare il modello con la configurazione `mortars.yaml`:
+## Repository layout
 
 ```
-python -m tools.train_mm --cfg configs/mortars.yaml
+configs/
+  baseline/                 Baseline (geometric augmentation only) and its replica on a second machine
+  ablation/data_driven/     single data-driven operations at P_op = 0.3 / 0.6 / 0.9, full data-driven pipeline
+  ablation/generic/         generic pipeline and its two halves (high / low frequency)
+semseg/                     library
+  datasets/mortars.py       dataset, train / val / test split, porosity merged into binder
+  augmentations_mm.py       geometric and photometric augmentation of the NP/NX pairs
+  models/                   MMSFormer (backbone, fusion, decoder)
+  losses.py, schedulers.py, optimizers.py, metrics.py
+  normalization.py          input normalization (ImageNet), shared by training and inference
+  checkpoints.py            checkpoint sidecar files (.meta.json), best checkpoint of a run folder
+  patch_geometry.py         geometry of the aligned patches (content, padding, position in the section)
+  preprocessing.py          helpers of the preprocessing tools (padding, NP/NX alignment, previews)
+  domain_shift.py           statistics of the domain shift analysis and fit of the data-driven parameters
+tools/                      scripts, run from the repository root (see "Reproducing the thesis")
 ```
 
-* Il modello verrà salvato in:
+## Installation
 
-```
-output/MMSFormer/MMSF-MORTARS-CONFIG
-```
+Python 3.12 or later is required. Install PyTorch for the CUDA version of the machine first
+([instructions](https://pytorch.org/get-started/locally/)), then the other dependencies:
 
-* Nome del modello:
-
-```
-MMSFormer_MMSFormer-B3_MORTARS_epochXX_XX.XX.pth
+```bash
+pip install -r requirements.txt
 ```
 
-### Testing
+Download the ImageNet weights of the MiT-B3 backbone (`mit_b3.pth`, from the
+[SegFormer weights](https://drive.google.com/drive/folders/10XgSW8f7ghRs9fJ0dE-EV8G2E_guVsT5)) into
+`checkpoints/pretrained/segformer/mit_b3.pth`. Training needs a GPU with about 10 GB of memory
+(batch 4, FP32); one run takes 7-8 hours on an RTX 5070 Ti and about 17 hours on an RTX 2080 Ti.
 
-Per testare il modello su un dataset di test:
+## Data
 
-```
-python -m tools.val_mm --cfg configs/mortars.yaml
-```
-
-* Assicurarsi di aver aggiornato nel file `mortars.yaml` il percorso del modello salvato nella sezione `EVAL`:
-
-```
-MODEL_PATH: 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epochXX_XX.XX.pth'
-```
-
-### Inference
-
-Per fare inferenza con il modello su nuovi dati:
+The images are not part of the repository. The tools expect the raw data in a folder `DIA_FIRENZE`
+**next to** the repository (paths are relative to the repository root; every tool also accepts `--src`):
 
 ```
-python -m tools.infer_mm --cfg configs/mortars.yaml
+DIA_FIRENZE/
+  1/ ... 12/                NICOLS PARALLELI.tif, NICOLS INCROCIATI.tif, AGGREGATE.tif, POROSITY.tif, TOTAL.tif
+                            (section 4 has no NX image and is skipped; section 5 is excluded when loading)
+  Nuove Immagini/
+    1NP_SCALA.tif, 1NX_SCALA.tif
+    1/                      annotated crop of 1_SCALA: 1NP_SCALA_RITAGLIO.tif, AGGREGATE/POROSITY/TOTAL.tif
+    2/                      UNITO_B: NP_UNITO_BW_B.tif, NX_UNITO_B.tif, crop RITAGLIO.tif and its masks
+  Prova immagini 5X/
+    ARCHEO_02 Nicols paralleli_5x.jpg, ARCHEO_02 Nicols incrociati_5x.jpg
 ```
 
-* Assicurarsi di aver aggiornato nel file `mortars.yaml` il percorso del modello salvato, nella sezione `TEST` :
+In every mask, black marks the class (aggregate, pore) or the valid mortar (TOTAL).
 
-```
-MODEL_PATH: 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epochXX_XX.XX.pth'
-```
+Generated data (`data/`) and results (`output/`) are written inside the repository and ignored by git:
 
-### Modelli addestrati
+| Folder | Content | Written by |
+|---|---|---|
+| `data/mortars_v2/` | 3866 patches 512 x 512 of the 11 historical sections with NP/NX/label (3305 without section 5) | `preprocess.py` |
+| `data/nuove_patches/{1_SCALA,UNITO_B}/` | 236 and 72 patches, no labels | `preprocess_new_images.py` |
+| `data/patches_5x_scale=057/ARCHEO_02/` | 539 patches after rescaling by S = 0.57 | `preprocess_5x.py` |
+| `*/valid/` | per-patch masks of the alignment padding | `make_valid_masks.py` |
+| `output/domain_shift_analysis_v2/` | statistics, distances, data-driven parameters, inverse correction | domain shift tools |
+| `output/campaign3/MMSFormer/<run>/` | checkpoints, `train.log`, `train_summary.json`, `eval_*.txt` | `train_mm.py`, `val_mm.py` |
+| `output/campaign3/inference_nuove/` | predicted masks on the new sections | `run_all_inferences_softmax.py` |
+| `output/campaign3/gt_ood/`, `gt_ood_corr/` | out-of-domain metrics and error maps | `eval_ood_gt.py` |
+| `output/campaign3/summary/` | tables of the ablation | `summarize_results.py` |
 
-Sono presenti dei modelli addestrati per la segmentazione delle malte al link: https://drive.google.com/drive/folders/1RFcC_c-t8dWocq6t473JKHmrPFLEwPcz?usp=sharing .
-C'è un modello addestrato utilizzando tre classi ( porosità, legante, aggregati ) e due modelli addestrati sul dataset al quale è stata tolta la classe porosità.
+The folder names `mortars_v2`, `domain_shift_analysis_v2`, `campaign3` and the `MMSF-V3-` prefix of the run
+folders are those of the results of the thesis and are kept so that the existing outputs stay readable.
 
----
+## Reproducing the thesis
 
-## Esempio di configurazione (`mortars.yaml`)
+`tools/reproduce_thesis.py` runs every step below in order, with the arguments used in the thesis.
+`--dry-run` prints the commands; `--stages` selects some steps; `--only` restricts training and test to some
+runs. A training run whose folder already has `train_summary.json` is skipped.
 
-```yaml
-DEVICE          : cuda                        
-SAVE_DIR        : 'output/MMSFormer'          
-#GPUs            : 2
-#GPU_IDs         : [0, 1]
-GPUs            : 1
-GPU_IDs         : [0]
-USE_WANDB       : false
-WANDB_NAME      : 'MMSF-MORTARS-CONFIG'           
-
-MODEL:
-  NAME          : MMSFormer                                         # name of the model you are using
-  BACKBONE      : MMSFormer-B3                                      # model variant
-  PRETRAINED    : 'checkpoints/pretrained/segformer/mit_b3.pth'     # backbone model's weight 
-  RESUME        : ''                                                # checkpoint file
-
-DATASET:
-  NAME          : MORTARS                                           # dataset name to be trained with (camvid, cityscapes, ade20k)
-  ROOT          : '/mortars_dataset'        # dataset root path
-  IGNORE_LABEL  : 3
-  # MODALS        : ['img']
-  MODALS        : ['paralleli', 'incrociati'] 
-  NUM_CLASSES   : 3                                              
-
-TRAIN:
-  IMAGE_SIZE    : [512, 512]                                         # training image size in (h, w) 
-  BATCH_SIZE    : 4                                                  # batch size used to train
-  EPOCHS        : 1                                                  # number of epochs to train
-  EVAL_START    : 0                                                  # evaluation interval during training
-  EVAL_INTERVAL : 1                                                  # evaluation interval during training
-  AMP           : true                                               # use AMP in training
-  DDP           : false                                              # use DDP training
-  WEIGHTED_RANDOM_SAMPLER : false                      
-
-LOSS:
-  NAME          : OhemCrossEntropy                                   # loss function name
-  CLS_WEIGHTS   : false                                              # use class weights in loss calculation
-  CLASS_WEIGHTS : [1.0, 8.0, 2.5] 
-
-OPTIMIZER:
-  NAME          : adamw                                              # optimizer name
-  LR            : 0.0001                                             # initial learning rate used in optimizer
-  WEIGHT_DECAY  : 0.1                                                # decay rate used in optimizer 
-
-SCHEDULER:
-  NAME          : warmuppolylr                                       # scheduler name
-  POWER         : 0.9                                                # scheduler power
-  WARMUP        : 10                                                 # warmup epochs used in scheduler
-  WARMUP_RATIO  : 0.1                                                # warmup ratio
-  
-
-EVAL:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch100_77.81.pth'         # Path to your saved model
-  IMAGE_SIZE    : [512, 512]                                         # evaluation image size in (h, w)                       
-  BATCH_SIZE    : 1                                                  # batch size
-  SAVE_PREDICTIONS : true
-  ERROR_THRESHOLD: 0.25
-  SAVE_CONFUSION: True
-  VIS_SAVE_DIR  : 'data/mortars_results'                             # Where to save visualization
-  CONFUSION_DIR : 'data/confusion_matrix'
-  MSF:  
-    ENABLE      : false                                              # multi-scale and flip evaluation  
-    FLIP        : true                                               # use flip in evaluation  
-    SCALES      : [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]                  # scales used in MSF evaluation                
-
-
-TEST:
-  MODEL_PATH    : 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch100_77.81.pth'         # Path to your saved model
-  IMAGE_SIZE    : [512, 512]                                               
-  VIS_SAVE_DIR  : 'infer_results'                                    # Where to save visualization
-  FILE          : '/home/leonardonotari/elabIVA/infer_dataset'
-  OVERLAY       :  true
-
+```bash
+python tools/reproduce_thesis.py --dry-run
+python tools/reproduce_thesis.py --stages train --only gen_060
 ```
 
+The single steps:
 
+| Step | Command | Thesis |
+|---|---|---|
+| Historical patches, NP/NX alignment, labels | `python tools/preprocess.py` | 2.1, 2.3, 2.4 |
+| Validity masks of the new sections | `python tools/inspect_and_mask_new_images.py`, `python tools/inspect_and_mask_5x.py` | 2.4 |
+| Patches of the new sections (ARCHEO_02 rescaled) | `python tools/preprocess_new_images.py`, `python tools/preprocess_5x.py` | 2.2, 2.5 |
+| Padding masks | `python tools/make_valid_masks.py` | 2.4 |
+| Domain shift statistics and data-driven parameters | `python tools/quantify_domain_shift.py` | 3, 4.4 |
+| Figures of the analysis | `python tools/plot_domain_shift.py` | 3 |
+| Closure test, coverage of a config | `python tools/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml` | 4.4.4 |
+| Inverse correction parameters | `python tools/fit_inverse_correction.py` | 6.9 |
+| Training (one run) | `python tools/train_mm.py --cfg <config> [--seed 42]` | 5.1, 5.3 |
+| Test set | `python tools/val_mm.py --cfg <config> --run-dir <run folder>` | 6 |
+| Predictions on the new sections | `python tools/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B [--tta]` | 6, 6.8 |
+| Predictions with inverse correction | `python tools/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json` | 6.9 |
+| Out-of-domain metrics | `python tools/eval_ood_gt.py --sources single tta` | 2.6, 5.5, 6 |
+| Tables of the ablation | `python tools/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv` | 6 |
+| Full-section prediction map | `python tools/reconstruct_section.py --meta <grid_metadata.json> --pred-dir <masks folder> --output <png>` | 2.6 |
+
+### Runs of the ablation
+
+Every config sets `TRAIN.SEED: 3407`; `--seed N` trains another seed and adds `-seedN` to the run folder
+(the folder name also gets `-p080` from `P_IMAGE = 0.8`). The 37 runs of the thesis:
+
+| Config | Seeds |
+|---|---|
+| `configs/baseline/mortars_v3_baseline-median.yaml` | 3407, 42, 3408 |
+| `configs/ablation/data_driven/{gamma,saturation,noise,blur}/*-{030,060,090}.yaml` | 3407 (gamma 090 also 42) |
+| `configs/ablation/data_driven/contrast/*-{030,060,090}.yaml` | 3407, 42, 3408 |
+| `configs/ablation/data_driven/full/mortars_v3_dd-060.yaml` | 3407, 42, 3408 |
+| `configs/ablation/generic/mortars_v3_gen-060.yaml`, `-tex-060`, `-col-060` | 3407, 42, 3408 |
+
+`configs/baseline/mortars_v3_baseline-median-micc.yaml` is the Baseline replica with seed 3407 trained on a
+second machine (Section 6.1); it is not part of the means.
+
+### Expected results
+
+Mean +- standard deviation across seeds (mIoU, %), as printed by `summarize_results.py`:
+
+| Configuration | Runs | Test (in-domain) | 1_SCALA | UNITO_B | Mean OOD |
+|---|---|---|---|---|---|
+| Baseline | 3 | 78.77 +- 0.45 | 50.9 +- 5.3 | 52.5 +- 18.1 | 51.7 +- 11.2 |
+| Single data-driven operations | 22 | 78.29 +- 0.72 | 51.1 +- 8.9 | 50.7 +- 10.3 | 50.9 +- 8.5 |
+| Data-driven pipeline | 3 | 77.69 +- 0.28 | 62.7 +- 4.1 | 65.3 +- 4.3 | 64.0 +- 4.2 |
+| Generic pipeline | 3 | 76.96 +- 0.93 | 63.7 +- 7.1 | 72.3 +- 1.4 | 68.0 +- 4.2 |
+| Generic, high frequency | 3 | 77.62 +- 1.08 | 48.3 +- 9.0 | 45.0 +- 7.5 | 46.6 +- 7.5 |
+| Generic, low frequency | 3 | 76.88 +- 0.23 | 66.9 +- 3.3 | 66.5 +- 1.9 | 66.7 +- 2.4 |
+| Baseline + inverse correction | 3 | - | 54.7 +- 3.5 | 59.3 +- 5.4 | 57.0 +- 1.9 |
+
+**Training is not deterministic.** `semseg/utils/utils.py` sets `cudnn.benchmark = True` and
+`cudnn.deterministic = False`, and GPUs differ numerically: retraining with the same config and seed gives a
+different model. In-domain results move by a few tenths of a point, out-of-domain results by up to about
+10 points per section (Section 6.1 of the thesis). Compare means over seeds, not single runs.
+
+## Credits and license
+
+MMSFormer: M. K. Reza, A. Prater-Bennette, M. S. Asif, *MMSFormer: Multimodal Transformer for Material and
+Semantic Segmentation*, IEEE OJSP 2024. SegFormer: E. Xie et al., NeurIPS 2021. The dataset loader, the first
+preprocessing and the adaptation of MMSFormer to the mortars are by L. Notari. Apache-2.0 license (see `LICENSE`).

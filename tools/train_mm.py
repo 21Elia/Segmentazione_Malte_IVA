@@ -1,3 +1,16 @@
+"""
+Training of MMSFormer on the historical sections (thesis, Section 5.1).
+
+The run folder is <SAVE_DIR>/<WANDB_NAME>[-pXXX][-seedN]: -pXXX is added when the config has a photometric
+augmentation with P_IMAGE (e.g. -p080), -seedN when --seed is given. It receives the best checkpoint by
+validation mIoU with its .meta.json sidecar, the last-epoch weights, train.log, train_summary.json and the
+TensorBoard events. Training stops by early stopping on the moving median of the validation mIoU.
+
+Usage (from the repository root):
+    python tools/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml
+    python tools/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml --seed 42
+"""
+
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -18,7 +31,8 @@ from torch import distributed as dist
 from semseg.models import *
 from semseg.datasets import * 
 from semseg.augmentations_mm import get_val_augmentation, build_train_augmentation
-from semseg.normalization import resolve_normalization, write_checkpoint_meta
+from semseg.normalization import resolve_normalization
+from semseg.checkpoints import write_checkpoint_meta
 from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
@@ -124,8 +138,7 @@ def main(cfg, save_dir):
     logger.info(f'Input normalization: {normalization}')
     aug_cfg = train_cfg.get('AUGMENTATION')
     if not isinstance(aug_cfg, dict):
-        raise ValueError("TRAIN.AUGMENTATION must be a dictionary with GEOMETRIC / PHOTOMETRIC sections "
-                         "(the first-campaign string pipelines were removed)")
+        raise ValueError("TRAIN.AUGMENTATION must be a dictionary with GEOMETRIC / PHOTOMETRIC sections")
     # photometric -> geometric -> normalization, see semseg/augmentations_mm.py
     traintransform = build_train_augmentation(aug_cfg, train_cfg['IMAGE_SIZE'], dataset_cfg['IGNORE_LABEL'], normalization)
     logger.info(f'Augmentation pipeline: {traintransform.transforms}')
@@ -442,7 +455,7 @@ def main(cfg, save_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='configs/mcubes_rgbadn.yaml', help='Configuration file to use')
+    parser.add_argument('--cfg', type=str, required=True, help='Configuration file to use')
     parser.add_argument('--seed', type=int, default=None, help='Overrides TRAIN.SEED (default 3407)')
     parser.add_argument('--p-image', type=float, default=None, help='Overrides TRAIN.AUGMENTATION.PHOTOMETRIC.P_IMAGE (sweep runs)')
     args = parser.parse_args()

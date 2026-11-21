@@ -1,12 +1,28 @@
 #!/usr/bin/env python3
 """
-Automated Batch Inference & Softmax / TTA Probability Extraction Runner.
-Bachelor's Thesis in Computer Engineering — Elia Awad, University of Florence (UNIFI).
+Batch inference of the trained models on the patches of the new sections (out-of-domain).
 
-Executes inference across all 5 models and all 3 target OOD domains with:
-1. Standard forward pass with float16 Softmax probability saving (.npy) for Shannon Entropy (SE).
-2. Optional C4 Test-Time Augmentation (TTA) with 8 geometric transforms to compute
-   Prediction Variance (VPT) per patch.
+Every run folder under --runs-dir (default output/campaign3/MMSFormer, one folder per config and seed,
+written by tools/train_mm.py) is registered automatically: MMSF-V3-GEN-060-p080-seed42 becomes the model
+key 'v3_gen_060_p080_seed42'. For each model the best checkpoint of its folder is loaded, with the input
+normalization recorded in its .meta.json sidecar.
+
+For every patch pair (NP, NX) the predicted class map is saved as a PNG (green = aggregates, black = binder):
+  - single forward pass                       -> masks/
+  - --tta: mean of the softmax over 8 flips/rotations (the dihedral group of the square) -> masks_tta/
+  - --inverse-correction PARAMS_JSON: the patches of each target are first brought towards the Source with
+    the gamma, contrast and saturation fitted by tools/fit_inverse_correction.py -> masks_corr/ (masks_tta_corr/)
+
+Outputs: <output-root>/inference_nuove/inference_nuove_<model>/<SECTION>/MMSFormer-B3/<masks dir>/<patch>.png
+for 1_SCALA and UNITO_B, <output-root>/inference_5x/inference_5x_scale=057_<model>/ARCHEO_02/... for ARCHEO_02.
+They are read by tools/eval_ood_gt.py and tools/reconstruct_section.py.
+
+Usage (from the repository root):
+    python tools/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B
+    python tools/run_all_inferences_softmax.py --models v3_baseline_med v3_gen_060_p080 --domains 1_SCALA UNITO_B --tta
+    python tools/run_all_inferences_softmax.py --models v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
+        --domains 1_SCALA UNITO_B \
+        --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json
 """
 
 import os
@@ -18,7 +34,6 @@ import time
 import argparse
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torchvision import transforms as T
 import torchvision.transforms.functional as TF
 from PIL import Image
@@ -29,73 +44,33 @@ except ImportError:
     def tqdm(iterable, desc=""):
         return iterable
 
-from semseg.models import *
-from semseg.datasets import *
-from semseg.normalization import normalize_tensor, NORMALIZATIONS, LEGACY_NORMALIZATION, read_checkpoint_meta, checkpoint_meta_path
+from semseg.models import MMSFormer
+from semseg.normalization import normalize_tensor
+from semseg.checkpoints import find_best_checkpoint, read_checkpoint_meta, load_state_dict
 
 Image.MAX_IMAGE_PIXELS = None
 
-# Pre-defined registry of models and checkpoints
-MODELS_REGISTRY = {
-    'baseline': {
-        'checkpoint': 'output/MMSFormer/MMSF-MORTARS-CONFIG/MMSFormer_MMSFormer-B3_MORTARS_epoch81_79.51.pth',
-        'pipeline': 'v1'
-    },
-    'exp1': {
-        'checkpoint': 'output/MMSFormer/MMSF-EXP1-GEO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch48_80.61.pth',
-        'pipeline': 'v1'
-    },
-    'exp2': {
-        'checkpoint': 'output/MMSFormer/MMSF-EXP2-PHOTO-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch50_78.41.pth',
-        'pipeline': 'exp2'
-    },
-    'exp3': {
-        'checkpoint': 'output/MMSFormer/MMSF-EXP3-SOFT-AUG/MMSFormer_MMSFormer-B3_MORTARS_epoch39_79.41.pth',
-        'pipeline': 'exp3'
-    },
-    'exp4a': {
-        'checkpoint': 'output/MMSFormer/MMSF-EXP4A-ASYM-PHOTO/MMSFormer_MMSFormer-B3_MORTARS_epoch40_78.78.pth',
-        'pipeline': 'exp4'
-    },
-    # Second campaign: best checkpoint found automatically in the run folder, normalization
-    # read from its .meta.json sidecar (see semseg/normalization.py)
-    'v2_baseline': {'run_dir': 'output/MMSFormer/MMSF-V2-BASELINE'},
-    'v2_exp1':     {'run_dir': 'output/MMSFormer/MMSF-V2-EXP1'},
-    'v2_exp2':     {'run_dir': 'output/MMSFormer/MMSF-V2-EXP2'},
-    'v2_exp4b':    {'run_dir': 'output/MMSFormer/MMSF-V2-EXP4B'},
-}
-# Third campaign: every run folder output/campaign3/MMSFormer/MMSF-V3-* is registered automatically
-# (MMSF-V3-EXP2-p050 -> 'v3_exp2_p050'); its predictions are written under output/campaign3/
-CAMPAIGN3_RUNS = 'output/campaign3/MMSFormer'
-for _run in sorted(glob.glob(os.path.join(CAMPAIGN3_RUNS, 'MMSF-V3-*'))):
-    _key = os.path.basename(_run).lower().replace('mmsf-', '', 1).replace('-', '_')
-    MODELS_REGISTRY[_key] = {'run_dir': _run, 'outputs': 'output/campaign3'}
-FIRST_CAMPAIGN = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
+DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
+DEFAULT_OUTPUT_ROOT = os.path.join('output', 'campaign3')
 
+# Patch folders (tools/preprocess_new_images.py, tools/preprocess_5x.py) and output sub-folder of each domain
 DOMAINS_REGISTRY = {
     '1_SCALA': {
         'patches_dir': 'data/nuove_patches/1_SCALA',
-        'vis_save_dir': 'output/inference_nuove/inference_nuove_{exp}/1_SCALA'
+        'vis_save_dir': 'inference_nuove/inference_nuove_{exp}/1_SCALA'
     },
     'UNITO_B': {
         'patches_dir': 'data/nuove_patches/UNITO_B',
-        'vis_save_dir': 'output/inference_nuove/inference_nuove_{exp}/UNITO_B'
+        'vis_save_dir': 'inference_nuove/inference_nuove_{exp}/UNITO_B'
     },
     'ARCHEO_02': {
         'patches_dir': 'data/patches_5x_scale=057/ARCHEO_02',
-        'vis_save_dir': 'output/inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02'
+        'vis_save_dir': 'inference_5x/inference_5x_scale=057_{exp}/ARCHEO_02'
     },
-    # In-domain reference: the historical test split (same images in data/mortars and
-    # data/mortars_v2; only the labels differ). Used by compute_entropy_vpt.py --indomain.
-    'INDOMAIN_TEST': {
-        'test_split_of': 'data/mortars_v2',
-        'vis_save_dir': 'output/inference_indomain/{exp}'
-    }
 }
 
-# C4 TTA Transformations (Forward and Inverse for PyTorch Tensors [B, C, H, W])
+# Test-time augmentation: (name, forward transform, inverse transform) on [B, C, H, W] tensors
 TTA_TENSOR_TRANSFORMS = [
-    # (name, fwd_fn, inv_fn)
     ('identity', lambda x: x, lambda x: x),
     ('hflip', lambda x: torch.flip(x, dims=[3]), lambda x: torch.flip(x, dims=[3])),
     ('vflip', lambda x: torch.flip(x, dims=[2]), lambda x: torch.flip(x, dims=[2])),
@@ -109,10 +84,18 @@ TTA_TENSOR_TRANSFORMS = [
 ]
 
 
-def get_preprocessing(pipeline_name: str, size: tuple = (512, 512)):
-    """Resize + normalization. pipeline_name is a normalization ('imagenet' / 'scale01')
-    or a legacy first-campaign augmentation name (mapped by LEGACY_NORMALIZATION)."""
-    normalization = pipeline_name if pipeline_name in NORMALIZATIONS else LEGACY_NORMALIZATION[pipeline_name]
+def model_key(run_dir):
+    """Model key of a run folder: MMSF-V3-GEN-060-p080-seed42 -> 'v3_gen_060_p080_seed42'."""
+    return os.path.basename(run_dir).lower().replace('mmsf-', '', 1).replace('-', '_')
+
+
+def discover_models(runs_dir):
+    """{model key: run folder} for every run folder under runs_dir."""
+    return {model_key(d): d for d in sorted(glob.glob(os.path.join(runs_dir, 'MMSF-*'))) if os.path.isdir(d)}
+
+
+def get_preprocessing(normalization, size=(512, 512)):
+    """Resize (a no-op on 512 x 512 patches) + normalization + batch dimension."""
     return T.Compose([
         T.Resize(size),
         T.Lambda(lambda x: normalize_tensor(x, normalization)),
@@ -120,59 +103,30 @@ def get_preprocessing(pipeline_name: str, size: tuple = (512, 512)):
     ])
 
 
-def find_best_checkpoint(run_dir: str):
-    """Best weights of a v2 run: the .pth with a .meta.json sidecar that is not '_last' / '_checkpoint'."""
-    candidates = [p for p in glob.glob(os.path.join(run_dir, '*.pth'))
-                  if not p.endswith(('_last.pth', '_checkpoint.pth')) and os.path.isfile(checkpoint_meta_path(p))]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: read_checkpoint_meta(p).get('val_miou', 0))
-
-
-def resolve_model(model_key: str):
-    """(checkpoint_path, normalization) for a registry entry."""
-    info = MODELS_REGISTRY[model_key]
-    if 'checkpoint' in info:
-        return info['checkpoint'], info['pipeline']
-    ckpt = find_best_checkpoint(info['run_dir'])
-    if ckpt is None:
-        return None, None
-    return ckpt, read_checkpoint_meta(ckpt)['normalization']
-
-
-def domain_files(dom_info: dict):
+def domain_files(dom_info):
     """Sorted list of NP patch paths of a domain."""
-    if 'test_split_of' in dom_info:
-        return [str(f) for f in MORTARS(dom_info['test_split_of'], 'test', None, ['paralleli', 'incrociati']).files]
     return sorted(glob.glob(os.path.join(dom_info['patches_dir'], 'paralleli', '**', '*.tif'), recursive=True))
 
 
-def load_model(checkpoint_path: str, device: torch.device):
-    """Loads MMSFormer-B3 model and checkpoint weights."""
+def load_model(checkpoint_path, device):
+    """Loads MMSFormer-B3 with the weights of a checkpoint, in evaluation mode."""
     model = MMSFormer('MMSFormer-B3', num_classes=2, modals=['paralleli', 'incrociati'])
-    ckpt = torch.load(checkpoint_path, map_location='cpu')
-    if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
-        state_dict = ckpt['model_state_dict']
-    else:
-        state_dict = ckpt
-    if any(k.startswith("module.") for k in state_dict.keys()):
-        state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict)
+    model.load_state_dict(load_state_dict(checkpoint_path))
     model = model.to(device)
     model.eval()
     return model
 
 
-def open_img(file_path: str):
-    """Opens TIFF image and converts to uint8 tensor [3, H, W]."""
+def open_img(file_path):
+    """Opens a TIFF patch as a uint8 tensor [3, H, W]."""
     pil_img = Image.open(file_path).convert('RGB')
     return (TF.to_tensor(pil_img) * 255).to(torch.uint8)
 
 
-def inverse_correction(img: torch.Tensor, p: dict):
+def inverse_correction(img, p):
     """Inverse photometric correction target -> Source of tools/fit_inverse_correction.py.
 
-    Same functions and order as tools/quantify_domain_shift.apply_tone: gamma -> contrast -> saturation
+    Same functions and order as semseg.domain_shift.apply_tone: gamma -> contrast -> saturation
     on the uint8 RGB patch, before resizing and normalization.
     """
     if p['gamma'] != 1.0:
@@ -185,98 +139,84 @@ def inverse_correction(img: torch.Tensor, p: dict):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch Runner for Softmax and TTA Probability Extraction")
-    parser.add_argument('--models', nargs='+', default=FIRST_CAMPAIGN,
-                        help="Models to execute (e.g. baseline exp1 exp2 exp3 exp4a)")
-    parser.add_argument('--domains', nargs='+', default=list(DOMAINS_REGISTRY.keys()),
-                        help="Domains to evaluate (e.g. 1_SCALA UNITO_B ARCHEO_02)")
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
-                        help="Execution device (cuda or cpu)")
+    parser = argparse.ArgumentParser(description="Batch inference on the patches of the new sections")
+    parser.add_argument('--runs-dir', default=DEFAULT_RUNS_DIR, help="Folder with one sub-folder per training run")
+    parser.add_argument('--output-root', default=DEFAULT_OUTPUT_ROOT, help="Root of the prediction folders")
+    parser.add_argument('--models', nargs='+', default=None,
+                        help="Model keys (e.g. v3_baseline_med v3_gen_060_p080_seed42); default: every run in --runs-dir")
+    parser.add_argument('--domains', nargs='+', default=list(DOMAINS_REGISTRY), choices=list(DOMAINS_REGISTRY))
+    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--save-softmax', action='store_true',
-                        help="Also save the float16 softmax maps (.npy, several GB): only needed for entropy analyses")
+                        help="Also save the float16 softmax maps (.npy, several GB)")
     parser.add_argument('--tta', action='store_true',
-                        help="Enable the 8-transform D4 test-time augmentation (VPT + averaged softmax, saved to masks_tta/ and softmax_tta/)")
+                        help="Average the softmax over the 8 flips/rotations; masks go to masks_tta/")
     parser.add_argument('--inverse-correction', default=None, metavar='PARAMS_JSON',
                         help="Apply the inverse photometric correction of tools/fit_inverse_correction.py "
-                             "(inverse_correction_params.json) to every NP/NX patch; outputs go to masks_corr/ "
+                             "(inverse_correction_params.json) to every NP/NX patch; masks go to masks_corr/ "
                              "(masks_tta_corr/ with --tta), so the uncorrected predictions are kept")
     args = parser.parse_args()
+
+    registry = discover_models(args.runs_dir)
+    models = args.models or list(registry)
     correction = None
     if args.inverse_correction:
         with open(args.inverse_correction, encoding='utf-8') as f:
             correction = json.load(f)['params']
 
     device = torch.device(args.device)
-    palette = torch.tensor([[0, 0, 0], [0, 255, 0]])  # Class 0: Binder (black), Class 1: Aggregates (green)
+    palette = torch.tensor([[0, 0, 0], [0, 255, 0]])  # class 0: binder (black), class 1: aggregates (green)
 
     print("=" * 80)
-    print("BATCH INFERENCE & PROBABILITY EXTRACTION RUNNER (SE & VPT)")
-    print(f"Models Selected : {args.models}")
-    print(f"Domains Selected: {args.domains}")
-    print(f"Execution Device: {device}")
-    print(f"TTA C4 Mode     : {'ENABLED (K=8 passes per patch for VPT)' if args.tta else 'STANDARD (1 pass with softmax)'}")
+    print(f"Models          : {models}")
+    print(f"Domains         : {args.domains}")
+    print(f"Device          : {device}")
+    print(f"TTA             : {'8 transforms' if args.tta else 'off (single forward pass)'}")
     print(f"Inverse correct.: {args.inverse_correction or 'none'}")
     print("=" * 80)
 
-    for model_key in args.models:
-        if model_key not in MODELS_REGISTRY:
-            print(f"Warning: Unknown model '{model_key}', skipping.")
+    for key in models:
+        if key not in registry:
+            print(f"Warning: no run folder for model '{key}' in {args.runs_dir}, skipping.")
             continue
-
-        ckpt_path, normalization = resolve_model(model_key)
-        if ckpt_path is None or not os.path.exists(ckpt_path):
-            print(f"Warning: Checkpoint not found: {ckpt_path}, skipping.")
+        ckpt_path = find_best_checkpoint(registry[key])
+        if ckpt_path is None:
+            print(f"Warning: no checkpoint with a .meta.json sidecar in {registry[key]}, skipping.")
             continue
+        normalization = read_checkpoint_meta(ckpt_path)['normalization']
 
-        print(f"\n" + "#" * 70)
-        print(f"LOADING MODEL: {model_key.upper()} ({ckpt_path})")
+        print("\n" + "#" * 70)
+        print(f"MODEL {key} ({ckpt_path}), input normalization: {normalization}")
         print("#" * 70)
-
         model = load_model(ckpt_path, device)
         preprocess = get_preprocessing(normalization)
-        print(f"  Input normalization: {normalization}")
 
         for dom_key in args.domains:
-            if dom_key not in DOMAINS_REGISTRY:
-                continue
-
             dom_info = DOMAINS_REGISTRY[dom_key]
             if correction is not None and dom_key not in correction:
                 print(f"  [Skip] No inverse-correction parameters for domain {dom_key}")
                 continue
-            vis_save_dir = dom_info['vis_save_dir'].format(exp=model_key)
-            outputs = MODELS_REGISTRY[model_key].get('outputs')
-            if outputs:
-                vis_save_dir = vis_save_dir.replace('output/', outputs + '/', 1)
-            vis_dir = Path(vis_save_dir) / 'MMSFormer-B3'
+            vis_dir = Path(args.output_root) / dom_info['vis_save_dir'].format(exp=key) / 'MMSFormer-B3'
 
-            # Single-pass and TTA outputs go to separate folders, so a --tta run never
-            # overwrites the single-pass predictions (first-campaign masks/ and softmax/
-            # folders were overwritten by the TTA run).
+            # Single-pass, TTA and corrected predictions go to separate folders and never overwrite each other
             suffix = ('_tta' if args.tta else '') + ('_corr' if correction is not None else '')
             masks_dir = vis_dir / f'masks{suffix}'
             softmax_dir = vis_dir / f'softmax{suffix}'
-            vpt_dir = vis_dir / f"vpt{'_corr' if correction is not None else ''}"
-
             os.makedirs(masks_dir, exist_ok=True)
             if args.save_softmax:
                 os.makedirs(softmax_dir, exist_ok=True)
-            if args.tta:
-                os.makedirs(vpt_dir, exist_ok=True)
 
             files = domain_files(dom_info)
             if not files:
-                print(f"  [Skip] No patch files found for domain {dom_key}")
+                print(f"  [Skip] No patch files found for domain {dom_key} in {dom_info['patches_dir']}")
                 continue
-
-            print(f"\n--- Model {model_key.upper()} on Domain {dom_key}: {len(files)} patch pairs ---")
+            print(f"\n--- {key} on {dom_key}: {len(files)} patch pairs ---")
 
             start_t = time.time()
             with torch.inference_mode():
-                for file_p in tqdm(files, desc=f"{model_key.upper()} [{dom_key}]"):
+                for file_p in tqdm(files, desc=f"{key} [{dom_key}]"):
                     file_x = 'incrociati'.join(file_p.rsplit('paralleli', 1))
                     if not os.path.exists(file_x):
-                        print(f"  Warning: Matching crossed patch not found: {file_x}, skipping.")
+                        print(f"  Warning: matching NX patch not found: {file_x}, skipping.")
                         continue
 
                     img1_raw = open_img(file_p)
@@ -284,59 +224,32 @@ def main():
                     if correction is not None:
                         img1_raw = inverse_correction(img1_raw, correction[dom_key]['NP'])
                         img2_raw = inverse_correction(img2_raw, correction[dom_key]['NX'])
-
                     img1_t = preprocess(img1_raw).to(device)
                     img2_t = preprocess(img2_raw).to(device)
-
                     stem = Path(file_p).stem
 
                     if not args.tta:
-                        # Single standard forward pass
-                        logits = model([img1_t, img2_t])
-                        probs = logits.softmax(dim=1)  # [1, 2, 512, 512]
+                        probs = model([img1_t, img2_t]).softmax(dim=1)  # [1, 2, 512, 512]
                     else:
-                        # K=8 C4 Test-Time Augmentation
                         k_probs = []
                         for _, fwd_fn, inv_fn in TTA_TENSOR_TRANSFORMS:
-                            t_img1 = fwd_fn(img1_t)
-                            t_img2 = fwd_fn(img2_t)
-                            t_logits = model([t_img1, t_img2])
-                            t_prob = t_logits.softmax(dim=1)
-                            # Invert spatial transformation to return to base coordinates
-                            inv_prob = inv_fn(t_prob)
-                            k_probs.append(inv_prob)
+                            t_prob = model([fwd_fn(img1_t), fwd_fn(img2_t)]).softmax(dim=1)
+                            k_probs.append(inv_fn(t_prob))  # back to the original orientation
+                        probs = torch.stack(k_probs, dim=0).mean(dim=0)
 
-                        stacked_k = torch.stack(k_probs, dim=0)  # [8, 1, 2, 512, 512]
-                        probs = stacked_k.mean(dim=0)            # Mean probability [1, 2, 512, 512]
-
-                        # Compute VPT: Variance of predicted aggregate class (index 1) across the K=8 transforms
-                        agg_k = stacked_k[:, 0, 1, :, :]         # [8, 512, 512]
-                        vpt_patch = agg_k.var(dim=0, unbiased=False).cpu().numpy().astype(np.float32)
-                        np.save(vpt_dir / f"{stem}.npy", vpt_patch)
-
-                    # Save Softmax Probability Map (.npy float16)
-                    softmax_np = probs.squeeze(0).cpu().half().numpy()
                     if args.save_softmax:
-                        np.save(softmax_dir / f"{stem}.npy", softmax_np)
+                        np.save(softmax_dir / f"{stem}.npy", probs.squeeze(0).cpu().half().numpy())
 
-                    # Update / save clean binary mask
                     pred_labels = probs.argmax(dim=1).squeeze(0).cpu().to(int)
-                    palette_mask = palette[pred_labels].numpy().astype(np.uint8)
-                    Image.fromarray(palette_mask).save(masks_dir / f"{stem}.png")
+                    Image.fromarray(palette[pred_labels].numpy().astype(np.uint8)).save(masks_dir / f"{stem}.png")
 
             elapsed = time.time() - start_t
-            speed_str = f"({len(files)/elapsed:.1f} patch/s)" if elapsed > 0 else ""
-            print(f"  Completed in {elapsed:.1f}s {speed_str}".strip())
-            print(f"  Saved masks to: {masks_dir}" + (f" and softmax to: {softmax_dir}" if args.save_softmax else ""))
-            if args.tta:
-                print(f"  Saved VPT to    : {vpt_dir}")
+            print(f"  Completed in {elapsed:.1f}s" + (f" ({len(files) / elapsed:.1f} patch/s)" if elapsed > 0 else ""))
+            print(f"  Masks saved to: {masks_dir}")
 
         del model
-        torch.cuda.empty_cache()
-
-    print("\n" + "=" * 80)
-    print("ALL BATCH INFERENCES AND PROBABILITY EXTRACTIONS COMPLETED!")
-    print("=" * 80)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':

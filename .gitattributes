@@ -1,0 +1,11 @@
+# Text files are stored and checked out with LF line endings on every OS, so that editing on
+# Windows does not show whole files as modified.
+* text=auto eol=lf
+*.tif binary
+*.tiff binary
+*.png binary
+*.jpg binary
+*.pth binary
+*.npy binary
+*.npz binary
+*.pdf binary

@@ -2,8 +2,8 @@
 """
 Inverse photometric correction (target -> Source): fit and closure test.
 
-The data-driven pipeline fits gamma, contrast and saturation that bring the Source onto each target.
-Here the roles are swapped: the same fit (tools/quantify_domain_shift.fit_tone, same training functions,
+The data-driven pipeline (thesis, Section 4.4) fits gamma, contrast and saturation that bring the Source onto each target.
+Here the roles are swapped: the same fit (semseg.domain_shift.fit_tone, same training functions,
 same order gamma -> contrast -> saturation, same number of iterations) is run on the patches of each
 target, so that their median V, median gray standard deviation and median S match those of the Source.
 Each target and modality (NP, NX) gets its own parameters. Blur and noise are not corrected.
@@ -41,8 +41,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from tools.quantify_domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
-                                         load_pair, to_tensor, apply_tone, fit_tone, w1, w1_circular)
+from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
+                                 load_pair, to_tensor, apply_tone, fit_tone, w1, w1_circular)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 IDENTITY = (1.0, 1.0, 1.0)

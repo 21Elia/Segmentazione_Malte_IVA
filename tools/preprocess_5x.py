@@ -3,14 +3,18 @@
 Mortar Dataset Pre-Processing and Alignment Script for 5X Images.
 
 Workflow:
-1. Loads NP and NX 5X gigapixel images and optionally rescales to 1X equivalent (scale=0.20) with cv2.INTER_AREA.
+1. Loads NP and NX 5X gigapixel images and rescales them to the resolution of the historical sections
+   (--scale, default S = 0.57, thesis Section 2.5) with cv2.INTER_AREA.
 2. Loads corresponding 1:1 validity mask (0=Mortar, 255=Background) and auto-adapts mask resolution.
 3. Pads NP and NX to identical dimensions using centered symmetric padding (Notari method).
 4. Extracts grid patches (512x512) strictly within the valid mortar region.
 5. Aligns NP relative to NX patch-by-patch via Phase Cross-Correlation.
 6. Generates PRE and POST alignment false-color RGB preview samples (R=NP, G=NX, B=0).
-7. Saves aligned patches to data/patches_5x/<section_name>/(paralleli|incrociati)
+7. Saves aligned patches to data/patches_5x_scale=057/ARCHEO_02/(paralleli|incrociati)
    and serializes grid_metadata.json for section reconstruction.
+
+Usage (from the repository root, after tools/inspect_and_mask_5x.py):
+    python tools/preprocess_5x.py
 """
 
 import os
@@ -18,9 +22,7 @@ os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 os.environ["OPENCV_FFMPEG_LOG_LEVEL"] = "-8"
 
 import sys
-import glob
 import json
-import time
 import argparse
 import cv2
 try:
@@ -32,37 +34,13 @@ import numpy as np
 from PIL import Image
 from skimage.registration import phase_cross_correlation
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.preprocessing import pad_image_to_size, is_valid_patch_position, create_false_color_rgb, align_patch_pair, get_5x_image_pairs
+
 Image.MAX_IMAGE_PIXELS = None
 
 
-def get_5x_image_pairs(src_dir):
-    """
-    Locates matching 5X image pairs (Parallel and Crossed Nicols) in the source directory.
-    """
-    pairs = []
-    all_files = glob.glob(os.path.join(src_dir, "*.*"))
-    
-    np_files = [f for f in all_files if 'paralleli' in os.path.basename(f).lower() and f.lower().endswith(('.jpg', '.jpeg', '.tif', '.png'))]
-    nx_files = [f for f in all_files if 'incrociati' in os.path.basename(f).lower() and f.lower().endswith(('.jpg', '.jpeg', '.tif', '.png'))]
-    
-    for np_path in np_files:
-        np_base = os.path.basename(np_path)
-        prefix = np_base.lower().split('nicols')[0].strip().replace(' ', '_').rstrip('_')
-        if not prefix:
-            prefix = "ARCHEO_02"
-        
-        matching_nx = [nx for nx in nx_files if os.path.basename(nx).lower().split('nicols')[0].strip().replace(' ', '_').rstrip('_') == prefix]
-        if matching_nx:
-            pairs.append({
-                'name': prefix.upper(),
-                'np': np_path,
-                'nx': matching_nx[0]
-            })
-            
-    return pairs
-
-
-def load_and_rescale_5x(image_path, scale=0.20):
+def load_and_rescale_5x(image_path, scale=0.57):
     """
     Loads native 5X image and rescales via cv2.INTER_AREA if scale != 1.0.
     """
@@ -81,59 +59,6 @@ def load_and_rescale_5x(image_path, scale=0.20):
     print(f"Native 5X dimensions: {w_orig} x {h_orig} px -> Rescaling (S={scale}): {target_w} x {target_h} px", flush=True)
     img_rescaled = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
     return img_rescaled
-
-
-def pad_image_to_size(img, target_h, target_w, fill_value=0):
-    """
-    Applies centered symmetric padding (Notari method) to match target dimensions.
-    """
-    h, w = img.shape[:2]
-    pad_h = max(0, target_h - h)
-    pad_w = max(0, target_w - w)
-
-    if pad_h == 0 and pad_w == 0:
-        return img
-
-    pad_top = pad_h // 2
-    pad_bottom = pad_h - pad_top
-    pad_left = pad_w // 2
-    pad_right = pad_w - pad_left
-
-    if len(img.shape) == 3:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
-    else:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
-
-    return np.pad(img, padding, mode='constant', constant_values=fill_value)
-
-
-def is_valid_patch_position(validity_mask, y, x, patch_size=512):
-    """
-    Verifies if patch at (y, x) is valid (no background pixels > 127 within window).
-    """
-    h, w = validity_mask.shape[:2]
-    if y + patch_size > h or x + patch_size > w:
-        return False
-
-    patch_region = validity_mask[y:y + patch_size, x:x + patch_size]
-    return bool(np.sum(patch_region > 127) == 0)
-
-
-def create_false_color_rgb(img_np, img_nx):
-    """
-    Creates false-color RGB preview:
-      - Red channel (BGR index 2) = Parallel Nicols grayscale
-      - Green channel (BGR index 1) = Crossed Nicols grayscale
-      - Blue channel (BGR index 0) = 0
-    """
-    np_gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY) if len(img_np.shape) == 3 else img_np
-    nx_gray = cv2.cvtColor(img_nx, cv2.COLOR_BGR2GRAY) if len(img_nx.shape) == 3 else img_nx
-
-    false_color = np.zeros((np_gray.shape[0], np_gray.shape[1], 3), dtype=np.uint8)
-    false_color[:, :, 2] = np_gray  # Red = NP
-    false_color[:, :, 1] = nx_gray  # Green = NX
-    false_color[:, :, 0] = 0        # Blue = 0
-    return false_color
 
 
 def compute_global_shift(img_np, img_nx, max_dim=2048):
@@ -176,67 +101,7 @@ def apply_global_shift(img, shift_y, shift_x, fill_value=0):
     return shifted
 
 
-def align_patch_pair(p_np, p_nx, patch_size=512, max_shift=50):
-    """
-    Aligns NP relative to NX patch using Phase Cross Correlation,
-    crops the overlapping region, and restores 512x512 with symmetric zero padding.
-    Identical methodology to preprocess_new_images.py (1_SCALA and UNITO_B).
-    """
-    np_gray = cv2.cvtColor(p_np, cv2.COLOR_BGR2GRAY) if len(p_np.shape) == 3 else p_np
-    nx_gray = cv2.cvtColor(p_nx, cv2.COLOR_BGR2GRAY) if len(p_nx.shape) == 3 else p_nx
-
-    try:
-        shift_values, error, _ = phase_cross_correlation(nx_gray, np_gray)
-        shift_y, shift_x = shift_values
-    except Exception:
-        shift_y, shift_x = 0.0, 0.0
-
-    shift_x_int = int(round(shift_x))
-    shift_y_int = int(round(shift_y))
-
-    # Safety check for excessive shifts
-    if abs(shift_x_int) > max_shift or abs(shift_y_int) > max_shift:
-        shift_x_int, shift_y_int = 0, 0
-
-    h, w = patch_size, patch_size
-
-    np_left = max(0, -shift_x_int)
-    np_top = max(0, -shift_y_int)
-    np_right = w - max(0, shift_x_int)
-    np_bottom = h - max(0, shift_y_int)
-
-    nx_left = max(0, shift_x_int)
-    nx_top = max(0, shift_y_int)
-    nx_right = w - max(0, -shift_x_int)
-    nx_bottom = h - max(0, -shift_y_int)
-
-    if (np_right <= np_left or np_bottom <= np_top or nx_right <= nx_left or nx_bottom <= nx_top):
-        np_left, np_top, np_right, np_bottom = 0, 0, w, h
-        nx_left, nx_top, nx_right, nx_bottom = 0, 0, w, h
-
-    crop_np = p_np[np_top:np_bottom, np_left:np_right]
-    crop_nx = p_nx[nx_top:nx_bottom, nx_left:nx_right]
-
-    crop_h, crop_w = crop_np.shape[:2]
-    pad_h = max(0, patch_size - crop_h)
-    pad_w = max(0, patch_size - crop_w)
-
-    if pad_h > 0 or pad_w > 0:
-        pad_top = pad_h // 2
-        pad_bottom = pad_h - pad_top
-        pad_left = pad_w // 2
-        pad_right = pad_w - pad_left
-
-        out_np = np.pad(crop_np, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
-        out_nx = np.pad(crop_nx, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
-    else:
-        out_np = crop_np
-        out_nx = crop_nx
-
-    return out_np, out_nx, (shift_x_int, shift_y_int)
-
-
-def process_5x_section(pair_info, mask_path, dst_dir, samples_dir, scale=0.20, patch_size=512, grid_size=512):
+def process_5x_section(pair_info, mask_path, dst_dir, samples_dir, scale=0.57, patch_size=512, grid_size=512):
     """
     Processes full 5X section generating aligned patch dataset and metadata.
     """
@@ -363,9 +228,10 @@ def main():
     parser = argparse.ArgumentParser(description="Pre-processing and Patch Alignment for 5X Images")
     parser.add_argument('--src', type=str, default='../DIA_FIRENZE/Prova immagini 5X', help="Source 5X images directory")
     parser.add_argument('--mask', type=str, default='output/inspection/ARCHEO_02_validity_mask.tif', help="Path to validity mask TIFF")
-    parser.add_argument('--dst', type=str, default='data/patches_5x/ARCHEO_02', help="Output patch directory")
+    parser.add_argument('--dst', type=str, default='data/patches_5x_scale=057/ARCHEO_02', help="Output patch directory")
     parser.add_argument('--samples-dir', type=str, default='output/alignment_samples/ARCHEO_02', help="Output directory for alignment samples")
-    parser.add_argument('--scale', type=float, default=0.20, help="Scale factor (default: 0.20)")
+    parser.add_argument('--scale', type=float, default=0.57,
+                        help="Rescaling factor to the 450 px/mm of the historical sections (default: 0.57)")
     parser.add_argument('--patch-size', type=int, default=512, help="Patch size in pixels (default: 512)")
     args = parser.parse_args()
 

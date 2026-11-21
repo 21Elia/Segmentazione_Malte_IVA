@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Figures of the domain shift analysis (v2), from the outputs of tools/quantify_domain_shift.py.
+Figures of the domain shift analysis (thesis, Chapter 3), from the outputs of tools/quantify_domain_shift.py.
 
 Reads domain_shift_stats.npz and the CSV files of the analysis folder; only the example-patch
-figure opens images. Writes every figure to <analysis folder>/figures/ with the ds2_ prefix used
-in the analysis note (analisi_domain_shift_v2_e_parametri_exp4b):
+figure opens images. Writes every figure to <analysis folder>/figures/ with the ds2_ prefix:
 
   ds2_esempi_patch.png             two patches per domain, NP and NX side by side
   ds2_cdf_NP.png, ds2_cdf_NX.png   CDFs of R, G, B, V, S, L* with the single Source sections
@@ -40,8 +39,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from tools.quantify_domain_shift import (DOMAINS, TARGETS, MODALITIES, GLCM_DISTANCES, HUE_BINS,
-                                         circular_mean_deg, circular_concentration, signed_deg, load_pair)
+from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, GLCM_DISTANCES, HUE_BINS,
+                                 circular_mean_deg, circular_concentration, signed_deg, load_pair)
 
 COLORS = {'Source': '#1f77b4', '1_SCALA': '#ff7f0e', 'UNITO_B': '#2ca02c', 'ARCHEO_02': '#d62728'}
 plt.rcParams.update({'font.size': 10})
@@ -230,7 +229,7 @@ def fig_noise(noise, report, out):
         for t, r in ratios.items():
             ax.axhline(r, color=COLORS[t], lw=1.8, label=f'{t}: rapporto {r:.2f}' + (' (piu morbida: niente rumore)' if r < 1 else ''))
         ax.plot([sig[-1]], [val[-1]], 's', color='0.3', ms=9)
-        ax.annotate(f'sigma {sig[-1]:.0f}: nitidezza x{val[-1]:.1f}\n(il rumore del vecchio Exp 2)', (sig[-1], val[-1]),
+        ax.annotate(f'sigma {sig[-1]:.0f}: nitidezza x{val[-1]:.1f}\n(il rumore della pipeline generica)', (sig[-1], val[-1]),
                     textcoords='offset points', xytext=(-150, -40), fontsize=9, color='0.25', arrowprops=dict(arrowstyle='->', color='0.4'))
         ax.set_yscale('log'); ax.set_ylim(0.45, max(14, val[-1] * 1.3))
         ax.set_yticks([0.5, 1, 1.5, 2, 3, 5, 10]); ax.set_yticklabels(['0.5', '1', '1.5', '2', '3', '5', '10'])
@@ -280,7 +279,7 @@ def fig_ratios(suggestions, out):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Figures of the domain shift analysis v2")
+    parser = argparse.ArgumentParser(description="Figures of the domain shift analysis")
     parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis_v2'))
     parser.add_argument('--seed', type=int, default=7, help="Seed for the choice of the example patches")
     args = parser.parse_args()

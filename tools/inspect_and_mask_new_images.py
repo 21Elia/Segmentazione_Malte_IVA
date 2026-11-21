@@ -3,10 +3,16 @@
 Inspect and Mask New Images Tool for MMSFormer.
 
 This script:
-1. Locates NP (paralleli) and NX (incrociati) image pairs in DIA_FIRENZE/Nuove Immagini.
+1. Locates NP (paralleli) and NX (incrociati) image pairs in DIA_FIRENZE/Nuove Immagini (or its subfolders).
 2. Evaluates alignment between NP and NX using Phase Correlation and saves overlay diff visualization.
 3. Generates a global validity mask (Otsu thresholding + morphological cleanup) to separate mortar section from background/resin.
 4. Saves preview visualizations showing the mask overlay in semi-transparent color over NP image.
+
+Outputs (default output/inspection/): <SECTION>_validity_mask.tif (full resolution, 0 = mortar,
+255 = background), read by tools/preprocess_new_images.py, plus a downscaled preview and an overlay.
+
+Usage (from the repository root):
+    python tools/inspect_and_mask_new_images.py
 """
 
 import os
@@ -14,7 +20,7 @@ os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 os.environ["OPENCV_FFMPEG_LOG_LEVEL"] = "-8"
 
 import sys
-import glob
+import argparse
 import cv2
 try:
     cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_OFF)
@@ -25,24 +31,21 @@ import numpy as np
 from PIL import Image
 from skimage.registration import phase_cross_correlation
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.preprocessing import find_image
+
 def get_image_pairs(nuove_img_dir):
     """
     Finds matching NP and NX image pairs in nuove_img_dir.
     Returns a list of dicts: [{'name': ..., 'np': path, 'nx': path}, ...]
     """
     pairs = []
-    # Pair 1: 1NP_SCALA.tif and 1NX_SCALA.tif
-    np1 = os.path.join(nuove_img_dir, '1NP_SCALA.tif')
-    nx1 = os.path.join(nuove_img_dir, '1NX_SCALA.tif')
-    if os.path.exists(np1) and os.path.exists(nx1):
-        pairs.append({'name': '1_SCALA', 'np': np1, 'nx': nx1})
-        
-    # Pair 2: NP_UNITO_BW_B.tif and NX_UNITO_B.tif
-    np2 = os.path.join(nuove_img_dir, 'NP_UNITO_BW_B.tif')
-    nx2 = os.path.join(nuove_img_dir, 'NX_UNITO_B.tif')
-    if os.path.exists(np2) and os.path.exists(nx2):
-        pairs.append({'name': 'UNITO_B', 'np': np2, 'nx': nx2})
-        
+    # Same lookup as tools/preprocess_new_images.py: the folder itself, then its subfolders
+    for name, np_file, nx_file in (('1_SCALA', '1NP_SCALA.tif', '1NX_SCALA.tif'),
+                                   ('UNITO_B', 'NP_UNITO_BW_B.tif', 'NX_UNITO_B.tif')):
+        np_path, nx_path = find_image(nuove_img_dir, np_file), find_image(nuove_img_dir, nx_file)
+        if np_path and nx_path:
+            pairs.append({'name': name, 'np': np_path, 'nx': nx_path})
     return pairs
 
 def inspect_alignment(np_img, nx_img):
@@ -191,14 +194,12 @@ def create_mask_overlay(np_img, mask, max_preview_dim=2000):
 
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, ".."))
-    nuove_dir = os.path.join(project_root, "..", "DIA_FIRENZE", "Nuove Immagini")
-    output_dir = os.path.join(project_root, "output", "inspection")
-    artifact_dir = "/Users/eliaawad/.gemini/antigravity/brain/adfaffe3-b868-4bfb-9af1-1f650f9816e3/inspection"
-    
+    parser = argparse.ArgumentParser(description="Validity masks of 1_SCALA and UNITO_B")
+    parser.add_argument('--src', type=str, default='../DIA_FIRENZE/Nuove Immagini', help="Path to the Nuove Immagini folder")
+    parser.add_argument('--output', type=str, default='output/inspection', help="Output directory for masks and previews")
+    args = parser.parse_args()
+    nuove_dir, output_dir = args.src, args.output
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(artifact_dir, exist_ok=True)
     
     print(f"Scanning for image pairs in: {nuove_dir}")
     pairs = get_image_pairs(nuove_dir)
@@ -236,20 +237,16 @@ def main():
         # Save downsampled preview mask for quick visual inspection
         mask_small = cv2.resize(mask, (0, 0), fx=0.2, fy=0.2)
         mask_save_path = os.path.join(output_dir, f"{name}_validity_mask.png")
-        mask_art_path = os.path.join(artifact_dir, f"{name}_validity_mask.png")
         img_mask = Image.fromarray(mask_small)
         img_mask.save(mask_save_path)
-        img_mask.save(mask_art_path)
         print(f"Saved mask preview to: {mask_save_path}")
         
         # Save mask overlay visualization
         mask_overlay_bgr = create_mask_overlay(np_img, mask)
         mask_overlay_rgb = cv2.cvtColor(mask_overlay_bgr, cv2.COLOR_BGR2RGB)
         mask_overlay_path = os.path.join(output_dir, f"{name}_mask_overlay.png")
-        mask_overlay_art_path = os.path.join(artifact_dir, f"{name}_mask_overlay.png")
         img_overlay = Image.fromarray(mask_overlay_rgb)
         img_overlay.save(mask_overlay_path)
-        img_overlay.save(mask_overlay_art_path)
         print(f"Saved mask overlay preview to: {mask_overlay_path}")
 
 if __name__ == '__main__':

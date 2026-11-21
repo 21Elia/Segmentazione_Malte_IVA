@@ -1,38 +1,30 @@
 #!/usr/bin/env python3
 """
-Out-of-Domain evaluation against the partial ground truth of 1_SCALA and UNITO_B.
+Out-of-domain evaluation against the partial ground truth of 1_SCALA and UNITO_B (thesis, Sections 2.6 and 5.5).
 
 The annotators delivered a crop (RITAGLIO) of each section with AGGREGATE, POROSITY and
 TOTAL masks (black = class / valid mortar). This tool:
 
 1. Locates the crop inside the full NP image (template matching + exact refinement)
-   and saves the offsets to output/gt_ood/crop_offsets.json.
+   and saves the offsets to <output-dir>/crop_offsets.json.
 2. Builds the 2-class ground truth in the crop frame:
    0 = binder (porosity merged into binder), 1 = aggregates, 255 = ignore (resin/background).
-3. Maps the predictions of each experiment into the same NP frame, patch by patch,
+3. Maps the predictions of each model into the same NP frame, patch by patch,
    using grid_metadata.json (alignment shift and centered padding of every patch).
 4. Computes IoU / F1 / accuracy per class, mIoU and the aggregate fraction (GT vs predicted)
    on the pixels that are both annotated and predicted, and saves error maps.
 
-Prediction sources (declared per experiment in EXPERIMENTS):
-  First campaign (baseline, exp1-exp3, exp4a):
-    - 'recon': reconstructed single-pass maps written by the old reconstruct_section.py
-               (patches pasted half an alignment shift off the NP frame, compensated here);
-               infer_mm.py ran with TEST.INVERT_PALETTE = true, so green = model class 0
-    - 'tta'  : per-patch masks/ folder, overwritten with the argmax of the 8-transform TTA
-               average by run_all_inferences_softmax.py --tta; green = model class 1
-    These checkpoints were trained on labels with binder and aggregates swapped (see the
-    tools/preprocess.py fix): their class 1 ("Aggregati") is binder, so recon green = real
-    aggregates and tta green = real binder.
-  Second campaign (v2_*): corrected labels and standard palette (green = aggregates)
-    - 'single': per-patch masks/ (single forward pass)
-    - 'tta'   : per-patch masks_tta/ (8-transform TTA average)
+Predictions are the per-patch masks written by tools/run_all_inferences_softmax.py
+(green = aggregates), one source per sub-folder:
+    single : masks/        single forward pass
+    tta    : masks_tta/    8-transform test-time augmentation
+    corr   : masks_corr/   inverse photometric correction (--inverse-correction)
 
-Usage (run from the repository root):
-    python tools/eval_ood_gt.py                                   # first-campaign models
-    python tools/eval_ood_gt.py --experiments v2_baseline v2_exp1   # second-campaign models
-    python tools/eval_ood_gt.py --domains UNITO_B --experiments exp1 --sources recon
-    python tools/eval_ood_gt.py --experiments v3_baseline --output-dir output/campaign3/gt_ood   # third campaign
+Usage (from the repository root):
+    python tools/eval_ood_gt.py                                     # every model, every source found
+    python tools/eval_ood_gt.py --experiments v3_baseline_med v3_gen_060_p080 --sources single tta
+    python tools/eval_ood_gt.py --experiments v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
+        --sources single corr --output-dir output/campaign3/gt_ood_corr
 """
 
 import os
@@ -50,69 +42,41 @@ from semseg.patch_geometry import patch_regions, content_slices, np_rect
 
 Image.MAX_IMAGE_PIXELS = None
 
-GT_ROOT = os.path.join('..', 'DIA_FIRENZE', 'Nuove Immagini')
 IGNORE = 255  # label value for pixels that are not annotated or not predicted
 
+DEFAULT_GT_ROOT = os.path.join('..', 'DIA_FIRENZE', 'Nuove Immagini')
+DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
+DEFAULT_PREDICTIONS_ROOT = os.path.join('output', 'campaign3', 'inference_nuove')
+DEFAULT_OUTPUT_DIR = os.path.join('output', 'campaign3', 'gt_ood')
+
+# Ground truth sub-folder (inside --gt-root), full NP image, NP image of the annotated crop, patch metadata
 DOMAINS = {
     '1_SCALA': {
-        'gt_dir': os.path.join(GT_ROOT, '1'),
+        'gt_dir': '1',
         'full_np': '1NP_SCALA.tif',
         'crop_np': '1NP_SCALA_RITAGLIO.tif',
         'meta': os.path.join('data', 'nuove_patches', '1_SCALA', 'grid_metadata.json'),
     },
     'UNITO_B': {
-        'gt_dir': os.path.join(GT_ROOT, '2'),
+        'gt_dir': '2',
         'full_np': 'NP_UNITO_BW_B.tif',
         'crop_np': 'RITAGLIO.tif',
         'meta': os.path.join('data', 'nuove_patches', 'UNITO_B', 'grid_metadata.json'),
     },
 }
 
-# Prediction sources of every experiment:
-#   kind 'recon_legacy': full-section map written by the OLD reconstruct_section.py, which pasted
-#                        each patch at (y + pad_top, x + pad_left) (half the alignment shift)
-#   kind 'recon'       : full-section map in the NP frame (fixed reconstruct_section.py)
-#   kind 'masks'       : per-patch prediction PNGs in <root>/<SECTION>/MMSFormer-B3/<subdir>/
-# green_class: model class index painted green. labels_swapped: model class 1 is binder
-# (first-campaign checkpoints, trained on the swapped labels of the old data/mortars).
-_OLD_SOURCES = {
-    'recon': {'kind': 'recon_legacy', 'green_class': 0},          # infer_mm.py with INVERT_PALETTE: true
-    'tta':   {'kind': 'masks', 'subdir': 'masks', 'green_class': 1},  # overwritten by the --tta run
+# Prediction sources: sub-folder of <predictions-root>/inference_nuove_<model>/<SECTION>/MMSFormer-B3/
+SOURCES = {
+    'single': 'masks',
+    'tta': 'masks_tta',
+    'corr': 'masks_corr',
 }
-_V2_SOURCES = {
-    'single': {'kind': 'masks', 'subdir': 'masks', 'green_class': 1},
-    'tta':    {'kind': 'masks', 'subdir': 'masks_tta', 'green_class': 1},
-    # inverse photometric correction (run_all_inferences_softmax.py --inverse-correction)
-    'corr':   {'kind': 'masks', 'subdir': 'masks_corr', 'green_class': 1},
-}
-EXPERIMENTS = {
-    'baseline': {'root': 'output/inference_nuove/inference_nuove_baseline', 'labels_swapped': True, 'sources': _OLD_SOURCES},
-    'exp1':     {'root': 'output/inference_nuove/inference_nuove_exp1', 'labels_swapped': True, 'sources': _OLD_SOURCES},
-    'exp2':     {'root': 'output/inference_nuove/inference_nuove_exp2', 'labels_swapped': True, 'sources': _OLD_SOURCES},
-    'exp3':     {'root': 'output/inference_nuove/inference_nuove_exp3', 'labels_swapped': True, 'sources': _OLD_SOURCES},
-    'exp4a':    {'root': 'output/inference_nuove/inference_nuove_exp4a', 'labels_swapped': True, 'sources': _OLD_SOURCES},
-    # Second campaign: corrected labels, standard palette (no INVERT_PALETTE)
-    'v2_baseline': {'root': 'output/inference_nuove/inference_nuove_v2_baseline', 'labels_swapped': False, 'sources': _V2_SOURCES},
-    'v2_exp1':     {'root': 'output/inference_nuove/inference_nuove_v2_exp1', 'labels_swapped': False, 'sources': _V2_SOURCES},
-    'v2_exp2':     {'root': 'output/inference_nuove/inference_nuove_v2_exp2', 'labels_swapped': False, 'sources': _V2_SOURCES},
-    'v2_exp4b':    {'root': 'output/inference_nuove/inference_nuove_v2_exp4b', 'labels_swapped': False, 'sources': _V2_SOURCES},
-}
-FIRST_CAMPAIGN = ['baseline', 'exp1', 'exp2', 'exp3', 'exp4a']
-# Third campaign: one experiment per run folder output/campaign3/MMSFormer/MMSF-V3-*, with the keys of
-# tools/run_all_inferences_softmax.py (MMSF-V3-EXP2-p050 -> 'v3_exp2_p050')
-for _run in sorted(glob.glob(os.path.join('output', 'campaign3', 'MMSFormer', 'MMSF-V3-*'))):
-    _key = os.path.basename(_run).lower().replace('mmsf-', '', 1).replace('-', '_')
-    EXPERIMENTS[_key] = {'root': f'output/campaign3/inference_nuove/inference_nuove_{_key}',
-                         'labels_swapped': False, 'sources': _V2_SOURCES}
 
 
-def green_to_aggregate(green, green_class, labels_swapped):
-    """Converts a green/not-green map (0/1, 255 = not predicted) into real aggregates (1) vs binder (0)."""
-    model_class = green if green_class == 1 else 1 - green   # model class index of each pixel
-    aggregate_class = 0 if labels_swapped else 1
-    aggr = (model_class == aggregate_class).astype(np.uint8)
-    aggr[green == IGNORE] = IGNORE
-    return aggr
+def model_keys(runs_dir):
+    """Model keys of the run folders, as in tools/run_all_inferences_softmax.py."""
+    return [os.path.basename(d).lower().replace('mmsf-', '', 1).replace('-', '_')
+            for d in sorted(glob.glob(os.path.join(runs_dir, 'MMSF-*'))) if os.path.isdir(d)]
 
 
 def load_gray(path):
@@ -126,12 +90,18 @@ def load_gray(path):
     return arr
 
 
+def load_gray_shape(path):
+    """(height, width) of an image without decoding the pixels."""
+    with Image.open(path) as img:
+        return img.size[1], img.size[0]
+
+
 def locate_crop(full_gray, crop_gray, scale=0.125, refine=16):
     """
     Finds the top-left corner (x0, y0) of crop_gray inside full_gray.
     Coarse normalized cross-correlation on downscaled images, then exhaustive refinement
-    of +-refine px at full resolution minimizing the mean absolute difference.
-    Returns (x0, y0, mean_abs_diff); a difference of ~0 means an exact sub-rectangle.
+    of +-refine px at full resolution minimizing the mean absolute difference (on every 7th
+    pixel in both directions). Returns (x0, y0, mean_abs_diff); ~0 means an exact sub-rectangle.
     """
     small_full = cv2.resize(full_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     small_crop = cv2.resize(crop_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -164,47 +134,32 @@ def build_gt(gt_dir):
     return gt
 
 
-def predictions_in_crop(meta, roi, source, exp_root, domain):
+def predictions_in_crop(meta, roi, mask_dir):
     """
-    Builds the predicted green map (1 = green, 0 = black, 255 = not predicted) in the crop frame.
-    roi = (x0, y0, w, h) of the crop in full-section NP coordinates. Returns (map, patches_used)
-    or (None, missing_path).
+    Builds the predicted aggregate map (1 = aggregate, 0 = binder, 255 = not predicted) in the crop frame.
+    roi = (x0, y0, w, h) of the crop in full-section NP coordinates. Returns (map, patches_used),
+    or (None, mask_dir) if the folder does not exist.
     """
+    if not os.path.isdir(mask_dir):
+        return None, mask_dir
     x0, y0, w, h = roi
     ps = meta['patch_size']
     out = np.full((h, w), IGNORE, dtype=np.uint8)
 
-    canvas = None
-    if source['kind'] in ('recon', 'recon_legacy'):
-        path = os.path.join(exp_root, f'{domain}_reconstructed.png')
-        if not os.path.exists(path):
-            return None, path
-        canvas = np.array(Image.open(path).convert('RGB'))[:, :, 1] > 127
-    else:
-        mask_dir = os.path.join(exp_root, domain, 'MMSFormer-B3', source['subdir'])
-        if not os.path.isdir(mask_dir):
-            return None, mask_dir
-
     used = 0
     for p in meta['patches']:
-        pad_top, pad_left, ch, cw, _, _ = patch_regions(p, ps)
+        _, _, ch, cw, _, _ = patch_regions(p, ps)
         ny0, nx0, _, _ = np_rect(p, ps)   # NP-frame position of the patch content
         ix0, iy0 = max(nx0, x0), max(ny0, y0)
         ix1, iy1 = min(nx0 + cw, x0 + w), min(ny0 + ch, y0 + h)
         if ix1 <= ix0 or iy1 <= iy0:
             continue
 
-        if source['kind'] == 'recon_legacy':
-            ry0, rx0 = p['y'] + pad_top, p['x'] + pad_left   # where the old reconstruct pasted it
-            content = canvas[ry0:ry0 + ch, rx0:rx0 + cw]
-        elif source['kind'] == 'recon':
-            content = canvas[ny0:ny0 + ch, nx0:nx0 + cw]
-        else:
-            mpath = os.path.join(mask_dir, p['filename'].replace('.tif', '.png'))
-            if not os.path.exists(mpath):
-                continue
-            rows, cols = content_slices(p, ps)
-            content = (np.array(Image.open(mpath).convert('RGB'))[:, :, 1] > 127)[rows, cols]
+        mpath = os.path.join(mask_dir, p['filename'].replace('.tif', '.png'))
+        if not os.path.exists(mpath):
+            continue
+        rows, cols = content_slices(p, ps)
+        content = (np.array(Image.open(mpath).convert('RGB'))[:, :, 1] > 127)[rows, cols]   # green = aggregate
         if content.shape != (ch, cw):
             continue
 
@@ -250,21 +205,29 @@ def save_error_map(gt, pred_agg, path, scale=0.25):
 
 def main():
     parser = argparse.ArgumentParser(description="OOD evaluation against the partial GT of 1_SCALA and UNITO_B")
-    parser.add_argument('--domains', nargs='+', default=list(DOMAINS))
-    parser.add_argument('--experiments', nargs='+', default=FIRST_CAMPAIGN, choices=list(EXPERIMENTS))
-    parser.add_argument('--sources', nargs='+', default=None,
-                        help="Source names to evaluate (default: all sources of each experiment)")
-    parser.add_argument('--output-dir', default=os.path.join('output', 'gt_ood'))
+    parser.add_argument('--domains', nargs='+', default=list(DOMAINS), choices=list(DOMAINS))
+    parser.add_argument('--experiments', nargs='+', default=None,
+                        help="Model keys (as in run_all_inferences_softmax.py); default: every run in --runs-dir")
+    parser.add_argument('--sources', nargs='+', default=None, choices=list(SOURCES),
+                        help="Prediction sources to evaluate (default: every source found)")
+    parser.add_argument('--gt-root', default=DEFAULT_GT_ROOT, help="Folder with the ground truth of the new sections")
+    parser.add_argument('--runs-dir', default=DEFAULT_RUNS_DIR, help="Folder with one sub-folder per training run")
+    parser.add_argument('--predictions-root', default=DEFAULT_PREDICTIONS_ROOT,
+                        help="Folder with the inference_nuove_<model> prediction folders")
+    parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
+    experiments = args.experiments or model_keys(args.runs_dir)
+    sources = args.sources or list(SOURCES)
 
     offsets, rows = {}, []
     for dom in args.domains:
         cfg = DOMAINS[dom]
+        gt_dir = os.path.join(args.gt_root, cfg['gt_dir'])
         print(f"\n{'=' * 70}\nDOMAIN {dom}\n{'=' * 70}", flush=True)
 
-        full = load_gray(os.path.join(cfg['gt_dir'], cfg['full_np']))
-        crop = load_gray(os.path.join(cfg['gt_dir'], cfg['crop_np']))
+        full = load_gray(os.path.join(gt_dir, cfg['full_np']))
+        crop = load_gray(os.path.join(gt_dir, cfg['crop_np']))
         x0, y0, diff = locate_crop(full, crop)
         h, w = crop.shape
         offsets[dom] = {'x0': x0, 'y0': y0, 'width': w, 'height': h, 'mean_abs_diff': round(diff, 3)}
@@ -274,10 +237,10 @@ def main():
 
         with open(cfg['meta'], encoding='utf-8') as f:
             meta = json.load(f)
-        if (meta['image_height'], meta['image_width']) != load_gray_shape(os.path.join(cfg['gt_dir'], cfg['full_np'])):
+        if (meta['image_height'], meta['image_width']) != load_gray_shape(os.path.join(gt_dir, cfg['full_np'])):
             print("  WARNING: grid_metadata size differs from the full NP image used for the GT", flush=True)
 
-        gt = build_gt(cfg['gt_dir'])
+        gt = build_gt(gt_dir)
         if gt.shape != (h, w):
             print(f"  ERROR: GT masks {gt.shape} do not match the crop {(h, w)}", flush=True)
             continue
@@ -286,20 +249,18 @@ def main():
               f"aggregates = {gt[annotated].mean() * 100:.1f}% of the mortar", flush=True)
         Image.fromarray(gt).save(os.path.join(args.output_dir, f'{dom}_gt_crop.png'))
 
-        for exp in args.experiments:
-            ecfg = EXPERIMENTS[exp]
-            for src_name, src in ecfg['sources'].items():
-                if args.sources and src_name not in args.sources:
-                    continue
-                pred, info = predictions_in_crop(meta, (x0, y0, w, h), src, ecfg['root'], dom)
+        for exp in experiments:
+            for src_name in sources:
+                mask_dir = os.path.join(args.predictions_root, f'inference_nuove_{exp}', dom, 'MMSFormer-B3', SOURCES[src_name])
+                pred, info = predictions_in_crop(meta, (x0, y0, w, h), mask_dir)
                 if pred is None:
-                    print(f"  [skip] {exp}/{src_name}: missing {info}", flush=True)
+                    if args.sources:   # only report sources that were asked for explicitly
+                        print(f"  [skip] {exp}/{src_name}: missing {info}", flush=True)
                     continue
-                pred = green_to_aggregate(pred, src['green_class'], ecfg['labels_swapped'])
                 s = scores(gt, pred)
                 save_error_map(gt, pred, os.path.join(args.output_dir, f'{dom}_{exp}_{src_name}_errors.png'))
                 rows.append({'domain': dom, 'experiment': exp, 'source': src_name, 'patches_used': info, **s})
-                print(f"  {exp:11s} {src_name:6s} mIoU={s['miou']:6.2f}  IoU binder={s['iou_binder']:6.2f}  "
+                print(f"  {exp:32s} {src_name:6s} mIoU={s['miou']:6.2f}  IoU binder={s['iou_binder']:6.2f}  "
                       f"IoU aggr={s['iou_aggregates']:6.2f}  aggr% GT={s['gt_aggregate_fraction']:5.1f} "
                       f"pred={s['pred_aggregate_fraction']:5.1f}  coverage={s['coverage_of_gt'] * 100:5.1f}%", flush=True)
 
@@ -314,12 +275,6 @@ def main():
             writer.writeheader()
             writer.writerows(rows)
     print(f"\nResults saved to {args.output_dir}", flush=True)
-
-
-def load_gray_shape(path):
-    """(height, width) of an image without decoding the pixels."""
-    with Image.open(path) as img:
-        return img.size[1], img.size[0]
 
 
 if __name__ == '__main__':

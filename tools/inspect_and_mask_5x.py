@@ -5,7 +5,8 @@ Inspect and Mask Tool for 5X Gigapixel Mortar Images.
 Workflow:
 1. Disables image size limits for gigapixel handling.
 2. Locates matching NP and NX 5X image pairs in DIA_FIRENZE/Prova immagini 5X.
-3. Loads and rescales 5X NP & NX images to 1X equivalent (scale=0.20) using cv2.INTER_AREA.
+3. Loads the 5X NP & NX images downscaled by --scale (default 0.20, only to compute the mask faster)
+   using cv2.INTER_AREA; tools/preprocess_5x.py resizes the mask to its own resolution.
 4. Generates a solid binary validity mask (0=Valid Mortar, 255=Background/Resin)
    leveraging multi-modal polarization birefringence (NX) and solid contour filling.
 5. Saves 1:1 TIFF mask and preview overlay visualizations.
@@ -16,7 +17,6 @@ os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 os.environ["OPENCV_FFMPEG_LOG_LEVEL"] = "-8"
 
 import sys
-import glob
 import argparse
 import cv2
 try:
@@ -25,38 +25,13 @@ except Exception:
     pass
 
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.preprocessing import pad_image_to_size, get_5x_image_pairs
 from PIL import Image
 
 # Disable PIL limit for decompression bomb protection on gigapixel images
 Image.MAX_IMAGE_PIXELS = None
-
-
-def get_5x_image_pairs(src_dir):
-    """
-    Finds matching 5X image pairs (Parallel and Crossed Nicols) in the source directory.
-    Returns a list of dictionaries: [{'name': 'ARCHEO_02', 'np': path_np, 'nx': path_nx}, ...]
-    """
-    pairs = []
-    all_files = glob.glob(os.path.join(src_dir, "*.*"))
-    
-    np_files = [f for f in all_files if 'paralleli' in os.path.basename(f).lower() and f.lower().endswith(('.jpg', '.jpeg', '.tif', '.png'))]
-    nx_files = [f for f in all_files if 'incrociati' in os.path.basename(f).lower() and f.lower().endswith(('.jpg', '.jpeg', '.tif', '.png'))]
-    
-    for np_path in np_files:
-        np_base = os.path.basename(np_path)
-        prefix = np_base.lower().split('nicols')[0].strip().replace(' ', '_').rstrip('_')
-        if not prefix:
-            prefix = "ARCHEO_02"
-        
-        matching_nx = [nx for nx in nx_files if os.path.basename(nx).lower().split('nicols')[0].strip().replace(' ', '_').rstrip('_') == prefix]
-        if matching_nx:
-            pairs.append({
-                'name': prefix.upper(),
-                'np': np_path,
-                'nx': matching_nx[0]
-            })
-            
-    return pairs
 
 
 def load_and_rescale_image(image_path, scale=0.20):
@@ -77,30 +52,6 @@ def load_and_rescale_image(image_path, scale=0.20):
     
     img_rescaled = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
     return img_rescaled
-
-
-def pad_image_to_size(img, target_h, target_w, fill_value=0):
-    """
-    Pads image to target dimensions using centered symmetric padding (Notari method).
-    """
-    h, w = img.shape[:2]
-    pad_h = max(0, target_h - h)
-    pad_w = max(0, target_w - w)
-
-    if pad_h == 0 and pad_w == 0:
-        return img
-
-    pad_top = pad_h // 2
-    pad_bottom = pad_h - pad_top
-    pad_left = pad_w // 2
-    pad_right = pad_w - pad_left
-
-    if len(img.shape) == 3:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
-    else:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
-
-    return np.pad(img, padding, mode='constant', constant_values=fill_value)
 
 
 def generate_validity_mask_5x(np_img_1x, nx_img_1x=None, min_area_ratio=0.01, kernel_size=135):

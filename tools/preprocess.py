@@ -39,7 +39,6 @@ os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 os.environ["OPENCV_FFMPEG_LOG_LEVEL"] = "-8"
 
 import sys
-import glob
 import json
 import time
 import argparse
@@ -51,6 +50,9 @@ except Exception:
     pass
 
 from skimage.registration import phase_cross_correlation
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from semseg.preprocessing import pad_image_to_size, is_valid_patch_position, create_false_color_rgb
 
 
 def find_section_files(section_dir):
@@ -85,60 +87,6 @@ def find_section_files(section_dir):
         return None
 
     return file_map
-
-
-def pad_image_to_size(img, target_h, target_w, fill_value=0):
-    """
-    Pads image to target_h, target_w using centered padding (matching Notari's pad_image method).
-    """
-    h, w = img.shape[:2]
-    pad_h = max(0, target_h - h)
-    pad_w = max(0, target_w - w)
-
-    if pad_h == 0 and pad_w == 0:
-        return img
-
-    pad_top = pad_h // 2
-    pad_bottom = pad_h - pad_top
-    pad_left = pad_w // 2
-    pad_right = pad_w - pad_left
-
-    if len(img.shape) == 3:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
-    else:
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
-
-    return np.pad(img, padding, mode='constant', constant_values=fill_value)
-
-
-def is_valid_patch_position(total_mask, y, x, patch_size=512):
-    """
-    Checks if a patch extracted at (y, x) with size patch_size is valid
-    (i.e. does not contain white/excluded background pixels > 127 in total_mask).
-    """
-    h, w = total_mask.shape[:2]
-    if y + patch_size > h or x + patch_size > w:
-        return False
-
-    patch_region = total_mask[y:y + patch_size, x:x + patch_size]
-    return bool(np.sum(patch_region > 127) == 0)
-
-
-def create_false_color_rgb(img_np, img_nx):
-    """
-    Creates a false-color RGB preview to visualize alignment:
-    - Red Channel (index 2 in BGR) = NP grayscale
-    - Green Channel (index 1 in BGR) = NX grayscale
-    - Blue Channel (index 0 in BGR) = 0
-    """
-    np_gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY) if len(img_np.shape) == 3 else img_np
-    nx_gray = cv2.cvtColor(img_nx, cv2.COLOR_BGR2GRAY) if len(img_nx.shape) == 3 else img_nx
-
-    false_color = np.zeros((np_gray.shape[0], np_gray.shape[1], 3), dtype=np.uint8)
-    false_color[:, :, 2] = np_gray  # Red = NP
-    false_color[:, :, 1] = nx_gray  # Green = NX
-    false_color[:, :, 0] = 0        # Blue = 0
-    return false_color
 
 
 def align_and_build_gt(img1_patch, img2_patch, porosity_patch, aggregate_patch, patch_size=512, max_shift=50):
@@ -375,8 +323,8 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
 def main():
     parser = argparse.ArgumentParser(description="Mortar dataset pre-processing script for MMSFormer")
     parser.add_argument('--src', type=str, default='../DIA_FIRENZE', help="Path to raw mortar sections directory")
-    parser.add_argument('--dst', type=str, default='data/mortars', help="Output directory for processed dataset")
-    parser.add_argument('--samples-dir', type=str, default='output/alignment_samples', help="Output directory for alignment samples")
+    parser.add_argument('--dst', type=str, default='data/mortars_v2', help="Output directory for processed dataset (DATASET.ROOT of the configs)")
+    parser.add_argument('--samples-dir', type=str, default='output/alignment_samples_v2', help="Output directory for alignment samples")
     parser.add_argument('--patch-size', type=int, default=512, help="Square patch dimension in pixels (default: 512)")
     parser.add_argument('--grid-size', type=int, default=512, help="Grid step size for patch extraction in pixels (default: 512)")
     args = parser.parse_args()

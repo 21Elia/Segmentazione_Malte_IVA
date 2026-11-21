@@ -10,7 +10,8 @@ Verification of the photometric augmentation parameters derived by tools/quantif
      hsv           brightness, contrast, saturation, hue, blur with the values of augmentation_suggestions.csv
      hsv_no_hue    the same without hue                                    (= model A)
      rgb_gains     one gain per channel (median ratio) + contrast
-     gamma         gamma, contrast, saturation of exp4b_parameters.csv, + blur (= model B)
+     gamma         gamma, contrast, saturation of exp4b_parameters.csv, + blur (= model B, the
+                   data-driven pipeline; this is the closure test of the thesis, Section 4.4.4)
      temperature   colour temperature (gains 1, sqrt(t), t) + refitted gamma, contrast, saturation (= model C)
    Outputs closure_test.csv, ds2_test_chiusura.png (none / hsv / hsv_no_hue / rgb_gains),
    ds2_test_chiusura_modelli.png (none / A / B / C) and the previews ds2_anteprima_{NP,NX}.png,
@@ -24,7 +25,7 @@ Verification of the photometric augmentation parameters derived by tools/quantif
 
 Usage (from the repository root, after tools/quantify_domain_shift.py):
     python tools/check_augmentation_params.py
-    python tools/check_augmentation_params.py --cfg configs/mortars_v2_exp4b.yaml
+    python tools/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml
 """
 
 import os
@@ -47,9 +48,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from tools.quantify_domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
-                                         calibration_set, load_calibration, load_pair, lap_stats, w1, w1_circular,
-                                         hist_quantile, to_tensor, fit_tone, section_of)
+from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
+                                 calibration_set, load_calibration, load_pair, lap_stats, w1, w1_circular,
+                                 hist_quantile, to_tensor, fit_tone, section_of)
 from semseg.augmentations_mm import PhotometricAugmentation
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
