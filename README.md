@@ -16,6 +16,8 @@ inference time.
 
 ## Repository layout
 
+`CODE_GUIDE.md` describes every Python file: what it does, what it reads and what it writes.
+
 ```
 configs/
   baseline/                 Baseline (geometric augmentation only) and its replica on a second machine
