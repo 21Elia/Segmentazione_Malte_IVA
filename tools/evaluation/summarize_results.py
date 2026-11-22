@@ -13,8 +13,8 @@ Outputs (in --output-dir):
   runs_summary.csv      per run: test mIoU, val mIoU, OOD mIoU per section and mean, aggregate fractions,
                         per-class accuracy, TTA, collapse flag (>= 65% predicted aggregates on a section)
   configs_summary.csv   per configuration and per group: mean and std of the same columns
-  correction_summary.csv  (with --corr-csv) OOD mIoU of the Baselines with and without the correction,
-                        one row per Baseline plus a 'mean' and a 'std' row
+  correction_summary.csv  (with --corr-csv) OOD mIoU of the Baselines and of the generic pipeline with and
+                        without the correction: one row per run plus a 'mean' and a 'std' row per group
 
 Only the configurations of the thesis are summarized; the Baseline replica trained on another machine
 (run key ending in '_micc') is reported separately and kept out of the means.
@@ -47,6 +47,8 @@ CONFIG_GROUPS = [
     (r'^v3_gen_tex_060_p080$', 'Generic, high frequency'),
     (r'^v3_gen_col_060_p080$', 'Generic, low frequency'),
 ]
+# Groups whose runs were also evaluated with the inverse photometric correction (--corr-csv)
+CORRECTION_GROUPS = ('Baseline', 'Generic')
 
 
 def run_key(run_dir):
@@ -182,25 +184,31 @@ def main():
 
     if args.corr_csv:
         corr = read_ood(args.corr_csv)
-        rows = []
-        for r in (r for r in runs if r['group'] == 'Baseline'):
-            per_section = corr.get((r['run'], 'corr'))
-            if not per_section:
+        rows, stats_rows = [], []
+        for group in CORRECTION_GROUPS:
+            group_rows = []
+            for r in (r for r in runs if r['group'] == group):
+                per_section = corr.get((r['run'], 'corr'))
+                if not per_section or any(sec not in per_section for sec in SECTIONS):
+                    continue
+                row = {'group': group, 'run': r['run'], 'miou_ood_original': r.get('miou_ood')}
+                for sec in SECTIONS:
+                    row[f'miou_{sec}'] = per_section[sec]['miou']
+                    row[f'pred_aggr_{sec}'] = per_section[sec]['pred_aggregate_fraction']
+                row['miou_ood'] = statistics.fmean(row[f'miou_{sec}'] for sec in SECTIONS)
+                group_rows.append(row)
+            if not group_rows:
                 continue
-            row = {'run': r['run'], 'miou_ood_original': r.get('miou_ood')}
-            for sec in SECTIONS:
-                row[f'miou_{sec}'] = per_section[sec]['miou']
-                row[f'pred_aggr_{sec}'] = per_section[sec]['pred_aggregate_fraction']
-            row['miou_ood'] = statistics.fmean(row[f'miou_{sec}'] for sec in SECTIONS)
-            rows.append(row)
-        # Two closing rows with the mean and the std across the Baselines of every column
-        stats_rows = [{'run': 'mean'}, {'run': 'std'}]
-        for c in (c for c in (rows[0] if rows else {}) if c != 'run'):
-            stats_rows[0][c], stats_rows[1][c] = mean_std([r[c] for r in rows])
+            # Two closing rows per group with the mean and the std across its runs of every column
+            mean_row, std_row = {'group': group, 'run': 'mean'}, {'group': group, 'run': 'std'}
+            for c in (c for c in group_rows[0] if c not in ('group', 'run')):
+                mean_row[c], std_row[c] = mean_std([r[c] for r in group_rows])
+            rows += group_rows
+            stats_rows += [mean_row, std_row]
+            print(f"Inverse correction, {group}: mean OOD {fmt(mean_row['miou_ood'], std_row['miou_ood'], 1)} "
+                  f"(without correction {fmt(mean_row['miou_ood_original'], std_row['miou_ood_original'], 1)}, "
+                  f"{len(group_rows)} runs)")
         write_csv(os.path.join(args.output_dir, 'correction_summary.csv'), rows + stats_rows)
-        m, s = mean_std([r['miou_ood'] for r in rows])
-        print(f"Inverse correction on the Baselines: mean OOD {fmt(m, s, 1)} ({len(rows)} runs)")
-    print(f"\nTables saved to {args.output_dir}")
 
 
 if __name__ == '__main__':

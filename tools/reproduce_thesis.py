@@ -8,7 +8,7 @@ Stages (run all of them, or pick some with --stages):
   train         the 37 training runs of the ablation (Table 5.4), one after the other
   replica       the Baseline replica with the same seed, meant for a second machine (Section 6.1)
   test          test-set evaluation of every run (eval_*.txt in each run folder)
-  infer         predictions on the new sections: single pass, TTA, inverse correction of the Baselines
+  infer         predictions on the new sections: single pass, TTA, inverse correction of the Baselines and of the generic pipeline
   evaluate      out-of-domain metrics on the annotated crops (gt_ood/, gt_ood_corr/)
   summary       tables of Chapter 6 (output/summary/)
 
@@ -51,7 +51,9 @@ TRAINING_RUNS = [
     (f'{GEN}/mortars_v3_gen-tex-060.yaml', [3407, 42, 3408]),
     (f'{GEN}/mortars_v3_gen-col-060.yaml', [3407, 42, 3408]),
 ]
-BASELINE_KEYS = ['v3_baseline_med', 'v3_baseline_med_seed42', 'v3_baseline_med_seed3408']
+# Runs evaluated with the inverse photometric correction: the Baselines and the generic pipeline
+CORRECTION_KEYS = ['v3_baseline_med', 'v3_baseline_med_seed42', 'v3_baseline_med_seed3408',
+                   'v3_gen_060_p080', 'v3_gen_060_p080_seed42', 'v3_gen_060_p080_seed3408']
 
 
 def run_folder(cfg_path, seed):
@@ -117,14 +119,14 @@ def stage_commands(stage, args):
         return [
             [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', 'ARCHEO_02'],
             [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', '--tta'],
-            [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--models', *BASELINE_KEYS,
+            [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--models', *CORRECTION_KEYS,
              '--domains', '1_SCALA', 'UNITO_B', '--inverse-correction', params],
         ]
     if stage == 'evaluate':
         return [
             [PY, 'tools/evaluation/eval_ood_gt.py', '--sources', 'single', 'tta',
              '--output-dir', os.path.join(OUTPUT_ROOT, 'gt_ood')],
-            [PY, 'tools/evaluation/eval_ood_gt.py', '--experiments', *BASELINE_KEYS, '--sources', 'single', 'corr',
+            [PY, 'tools/evaluation/eval_ood_gt.py', '--experiments', *CORRECTION_KEYS, '--sources', 'single', 'corr',
              '--output-dir', os.path.join(OUTPUT_ROOT, 'gt_ood_corr')],
         ]
     if stage == 'summary':

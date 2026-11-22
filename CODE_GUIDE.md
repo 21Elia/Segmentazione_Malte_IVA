@@ -81,7 +81,7 @@ from the scripts and return results. Every module is imported by at least one sc
 | Module | Content |
 |---|---|
 | `models/mmsformer.py` | `MMSFormer`: backbone + decoder head, takes the list `[NP, NX]` and returns the class logits |
-| `models/backbones/mmsformer.py` | MiT-B3 encoder (one per modality) and the fusion blocks between NP and NX |
+| `models/backbones/mmsformer.py` | encoders and fusion: MiT-B3 for the first modality (NP), MiT-B1 for the second (NX, initialized from `mit_b1.pth`), fusion blocks between the two |
 | `models/heads/segformer.py` | SegFormer decoder (all-MLP head) |
 | `models/base.py`, `models/layers/` | base class (loading of the pretrained backbone), shared layers, weight initialization |
 | `losses.py` | cross-entropy (plain and OHEM) and Dice, with the ignore label |

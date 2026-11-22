@@ -50,9 +50,11 @@ Python 3.12 or later is required. Install PyTorch for the CUDA version of the ma
 pip install -r requirements.txt
 ```
 
-Download the ImageNet weights of the MiT-B3 backbone (`mit_b3.pth`, from the
-[SegFormer weights](https://drive.google.com/drive/folders/10XgSW8f7ghRs9fJ0dE-EV8G2E_guVsT5)) into
-`checkpoints/pretrained/segformer/mit_b3.pth`. Training needs a GPU with about 10 GB of memory
+Download two ImageNet weight files of the SegFormer encoders, `mit_b3.pth` and `mit_b1.pth` (from the
+[SegFormer weights](https://drive.google.com/drive/folders/10XgSW8f7ghRs9fJ0dE-EV8G2E_guVsT5)), into
+`checkpoints/pretrained/segformer/`. `mit_b3.pth` initializes the main encoder (`MODEL.PRETRAINED` of the
+configs); `mit_b1.pth` is loaded every time the model is built, also for inference, by the MiT-B1 branch of
+the second modality (`semseg/models/backbones/mmsformer.py`). Training needs a GPU with about 10 GB of memory
 (batch 4, FP32); one run takes 7-8 hours on an RTX 5070 Ti and about 17 hours on an RTX 2080 Ti.
 
 ## Data
@@ -120,7 +122,7 @@ The single steps:
 | Training (one run) | `python tools/training/train_mm.py --cfg <config> [--seed 42]` | 5.1, 5.3 |
 | Test set | `python tools/training/val_mm.py --cfg <config> --run-dir <run folder>` | 6 |
 | Predictions on the new sections | `python tools/evaluation/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B [--tta]` | 6, 6.8 |
-| Predictions with inverse correction | `python tools/evaluation/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis/inverse_correction/inverse_correction_params.json` | 6.9 |
+| Predictions with inverse correction | `python tools/evaluation/run_all_inferences_softmax.py --models <baselines and generic pipeline> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis/inverse_correction/inverse_correction_params.json` | 6.9 |
 | Out-of-domain metrics | `python tools/evaluation/eval_ood_gt.py --sources single tta` | 2.6, 5.5, 6 |
 | Tables of the ablation | `python tools/evaluation/summarize_results.py --corr-csv output/gt_ood_corr/gt_ood_metrics.csv` | 6 |
 | Full-section prediction map | `python tools/evaluation/reconstruct_section.py --meta <grid_metadata.json> --pred-dir <masks folder> --output <png>` | 2.6 |

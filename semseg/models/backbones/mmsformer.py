@@ -377,7 +377,8 @@ class MMSFormer(nn.Module):
         
         # Have extra modality
         if self.num_modals > 0:
-            # Backbones and Fusion Block for extra modalities
+            # Backbones and Fusion Block for extra modalities. Each extra branch is a MiT-B1 that loads
+            # checkpoints/pretrained/segformer/mit_b1.pth when it is built (inference included)
             self.extra_mit = nn.ModuleList([MixTransformer('B1', self.modals[i]) for i in range(self.num_modals)])
             self.fusion_block = FusionBlock(self.channels, reduction=16, num_modals=self.num_modals+1)
      
