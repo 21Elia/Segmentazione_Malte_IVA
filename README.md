@@ -80,14 +80,17 @@ Generated data (`data/`) and results (`output/`) are written inside the reposito
 | `data/nuove_patches/{1_SCALA,UNITO_B}/` | 236 and 72 patches, no labels | `preprocess_new_images.py` |
 | `data/patches_5x_scale=057/ARCHEO_02/` | 539 patches after rescaling by S = 0.57 | `preprocess_5x.py` |
 | `*/valid/` | per-patch masks of the alignment padding | `make_valid_masks.py` |
-| `output/domain_shift_analysis_v2/` | statistics, distances, data-driven parameters, inverse correction | domain shift tools |
-| `output/campaign3/MMSFormer/<run>/` | checkpoints, `train.log`, `train_summary.json`, `eval_*.txt` | `train_mm.py`, `val_mm.py` |
-| `output/campaign3/inference_nuove/` | predicted masks on the new sections | `run_all_inferences_softmax.py` |
-| `output/campaign3/gt_ood/`, `gt_ood_corr/` | out-of-domain metrics and error maps | `eval_ood_gt.py` |
-| `output/campaign3/summary/` | tables of the ablation | `summarize_results.py` |
+| `output/alignment_samples/`, `output/inspection/` | NP/NX alignment previews, validity masks of the new sections | preprocessing tools |
+| `output/domain_shift_analysis/` | statistics, distances, data-driven parameters, inverse correction | domain shift tools |
+| `output/MMSFormer/<run>/` | checkpoints, `train.log`, `train_summary.json`, `eval_*.txt` | `train_mm.py`, `val_mm.py` |
+| `output/results/`, `output/confusion/` | test-set patches with a high error rate, confusion matrices | `val_mm.py` |
+| `output/inference_nuove/` | predicted masks on the new sections | `run_all_inferences_softmax.py` |
+| `output/inference_custom/` | predicted masks on a folder given with `--patches-dir` | `run_all_inferences_softmax.py` |
+| `output/gt_ood/`, `gt_ood_corr/` | out-of-domain metrics and error maps | `eval_ood_gt.py` |
+| `output/summary/` | tables of the ablation | `summarize_results.py` |
 
-The folder names `domain_shift_analysis_v2`, `campaign3` and the `MMSF-V3-` prefix of the run
-folders are those of the results of the thesis and are kept so that the existing outputs stay readable.
+The `MMSF-V3-` prefix of the run folders (and the `v3_` prefix of the model keys derived from it) is the one of
+the results of the thesis and is kept so that the existing outputs stay readable.
 
 ## Reproducing the thesis
 
@@ -115,9 +118,9 @@ The single steps:
 | Training (one run) | `python tools/training/train_mm.py --cfg <config> [--seed 42]` | 5.1, 5.3 |
 | Test set | `python tools/training/val_mm.py --cfg <config> --run-dir <run folder>` | 6 |
 | Predictions on the new sections | `python tools/evaluation/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B [--tta]` | 6, 6.8 |
-| Predictions with inverse correction | `python tools/evaluation/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json` | 6.9 |
+| Predictions with inverse correction | `python tools/evaluation/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis/inverse_correction/inverse_correction_params.json` | 6.9 |
 | Out-of-domain metrics | `python tools/evaluation/eval_ood_gt.py --sources single tta` | 2.6, 5.5, 6 |
-| Tables of the ablation | `python tools/evaluation/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv` | 6 |
+| Tables of the ablation | `python tools/evaluation/summarize_results.py --corr-csv output/gt_ood_corr/gt_ood_metrics.csv` | 6 |
 | Full-section prediction map | `python tools/evaluation/reconstruct_section.py --meta <grid_metadata.json> --pred-dir <masks folder> --output <png>` | 2.6 |
 
 ### Runs of the ablation

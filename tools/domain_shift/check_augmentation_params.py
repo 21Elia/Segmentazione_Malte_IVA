@@ -10,7 +10,7 @@ Verification of the photometric augmentation parameters derived by tools/domain_
      hsv           brightness, contrast, saturation, hue, blur with the values of augmentation_suggestions.csv
      hsv_no_hue    the same without hue                                    (= model A)
      rgb_gains     one gain per channel (median ratio) + contrast
-     gamma         gamma, contrast, saturation of exp4b_parameters.csv, + blur (= model B, the
+     gamma         gamma, contrast, saturation of data_driven_parameters.csv, + blur (= model B, the
                    data-driven pipeline; this is the closure test of the thesis, Section 4.4.4)
      temperature   colour temperature (gains 1, sqrt(t), t) + refitted gamma, contrast, saturation (= model C)
    Outputs closure_test.csv, ds2_test_chiusura.png (none / hsv / hsv_no_hue / rgb_gains),
@@ -298,7 +298,7 @@ def config_check(cfg_path, cal, stats, draws, seed, out_dir, fig_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Closure test and config check of the photometric augmentation parameters")
-    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis_v2'))
+    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis'))
     parser.add_argument('--cfg', default=None, help="Training config whose TRAIN.AUGMENTATION.PHOTOMETRIC is checked")
     parser.add_argument('--n-samples', type=int, default=400, help="Must match quantify_domain_shift.py")
     parser.add_argument('--seed', type=int, default=42, help="Must match quantify_domain_shift.py")
@@ -310,7 +310,7 @@ def main():
 
     stats = dict(np.load(os.path.join(folder, 'domain_shift_stats.npz')))
     sugg = read_csv(folder, 'augmentation_suggestions.csv')
-    params = read_csv(folder, 'exp4b_parameters.csv')
+    params = read_csv(folder, 'data_driven_parameters.csv')
     intra = {(r['modality'], r['channel']): float(r['max']) for r in read_csv(folder, 'intra_source_w1.csv')}
     with open(os.path.join(folder, 'run_info.json'), encoding='utf-8') as f:
         info = json.load(f)

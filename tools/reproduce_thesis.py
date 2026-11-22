@@ -10,7 +10,7 @@ Stages (run all of them, or pick some with --stages):
   test          test-set evaluation of every run (eval_*.txt in each run folder)
   infer         predictions on the new sections: single pass, TTA, inverse correction of the Baselines
   evaluate      out-of-domain metrics on the annotated crops (gt_ood/, gt_ood_corr/)
-  summary       tables of Chapter 6 (output/campaign3/summary/)
+  summary       tables of Chapter 6 (output/summary/)
 
 Every command is printed before it runs; --dry-run only prints them. A training run whose folder already
 contains train_summary.json is skipped, so the train stage can be stopped and restarted.
@@ -29,9 +29,9 @@ import argparse
 import subprocess
 
 PY = sys.executable
-RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
-OUTPUT_ROOT = os.path.join('output', 'campaign3')
-ANALYSIS_DIR = os.path.join('output', 'domain_shift_analysis_v2')
+RUNS_DIR = os.path.join('output', 'MMSFormer')
+OUTPUT_ROOT = 'output'
+ANALYSIS_DIR = os.path.join('output', 'domain_shift_analysis')
 DEFAULT_SEED = 3407   # TRAIN.SEED of every config: runs with this seed get no '-seedN' suffix
 
 BASELINE = 'configs/baseline/mortars_v3_baseline-median.yaml'

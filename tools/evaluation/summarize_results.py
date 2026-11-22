@@ -20,7 +20,7 @@ Only the configurations of the thesis are summarized; the Baseline replica train
 
 Usage (from the repository root):
     python tools/evaluation/summarize_results.py
-    python tools/evaluation/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv
+    python tools/evaluation/summarize_results.py --corr-csv output/gt_ood_corr/gt_ood_metrics.csv
 """
 
 import os
@@ -31,9 +31,9 @@ import json
 import argparse
 import statistics
 
-DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
-DEFAULT_OOD_CSV = os.path.join('output', 'campaign3', 'gt_ood', 'gt_ood_metrics.csv')
-DEFAULT_OUTPUT_DIR = os.path.join('output', 'campaign3', 'summary')
+DEFAULT_RUNS_DIR = os.path.join('output', 'MMSFormer')
+DEFAULT_OOD_CSV = os.path.join('output', 'gt_ood', 'gt_ood_metrics.csv')
+DEFAULT_OUTPUT_DIR = os.path.join('output', 'summary')
 COLLAPSE_THRESHOLD = 65.0   # % of predicted aggregates on at least one section
 SECTIONS = ('1_SCALA', 'UNITO_B')
 

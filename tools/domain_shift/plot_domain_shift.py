@@ -20,7 +20,7 @@ figure opens images. Writes every figure to <analysis folder>/figures/ with the 
 
 Usage (from the repository root, after tools/domain_shift/quantify_domain_shift.py):
     python tools/domain_shift/plot_domain_shift.py
-    python tools/domain_shift/plot_domain_shift.py --analysis-dir output/domain_shift_analysis_v2
+    python tools/domain_shift/plot_domain_shift.py --analysis-dir output/domain_shift_analysis
 """
 
 import os
@@ -280,7 +280,7 @@ def fig_ratios(suggestions, out):
 
 def main():
     parser = argparse.ArgumentParser(description="Figures of the domain shift analysis")
-    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis_v2'))
+    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis'))
     parser.add_argument('--seed', type=int, default=7, help="Seed for the choice of the example patches")
     args = parser.parse_args()
     folder = args.analysis_dir
@@ -288,7 +288,7 @@ def main():
     os.makedirs(out, exist_ok=True)
 
     stats = dict(np.load(os.path.join(folder, 'domain_shift_stats.npz')))
-    report = read_csv(folder, 'domain_shift_report_v2.csv')
+    report = read_csv(folder, 'domain_shift_report.csv')
 
     fig_example_patches(stats, out, args.seed)
     fig_cdf(stats, out)

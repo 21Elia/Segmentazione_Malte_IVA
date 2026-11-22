@@ -12,7 +12,8 @@ TOTAL masks (black = class / valid mortar). This tool:
 3. Maps the predictions of each model into the same NP frame, patch by patch,
    using grid_metadata.json (alignment shift and centered padding of every patch).
 4. Computes IoU / F1 / accuracy per class, mIoU and the aggregate fraction (GT vs predicted)
-   on the pixels that are both annotated and predicted, and saves error maps.
+   on the pixels that are both annotated and predicted, and saves error maps to
+   <output-dir>/<model>/<domain>_<source>_errors.png.
 
 Predictions are the per-patch masks written by tools/evaluation/run_all_inferences_softmax.py
 (green = aggregates), one source per sub-folder:
@@ -24,7 +25,7 @@ Usage (from the repository root):
     python tools/evaluation/eval_ood_gt.py                                     # every model, every source found
     python tools/evaluation/eval_ood_gt.py --experiments v3_baseline_med v3_gen_060_p080 --sources single tta
     python tools/evaluation/eval_ood_gt.py --experiments v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
-        --sources single corr --output-dir output/campaign3/gt_ood_corr
+        --sources single corr --output-dir output/gt_ood_corr
 """
 
 import os
@@ -45,9 +46,9 @@ Image.MAX_IMAGE_PIXELS = None
 IGNORE = 255  # label value for pixels that are not annotated or not predicted
 
 DEFAULT_GT_ROOT = os.path.join('..', 'DIA_FIRENZE', 'Nuove Immagini')
-DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
-DEFAULT_PREDICTIONS_ROOT = os.path.join('output', 'campaign3', 'inference_nuove')
-DEFAULT_OUTPUT_DIR = os.path.join('output', 'campaign3', 'gt_ood')
+DEFAULT_RUNS_DIR = os.path.join('output', 'MMSFormer')
+DEFAULT_PREDICTIONS_ROOT = os.path.join('output', 'inference_nuove')
+DEFAULT_OUTPUT_DIR = os.path.join('output', 'gt_ood')
 
 # Ground truth sub-folder (inside --gt-root), full NP image, NP image of the annotated crop, patch metadata
 DOMAINS = {
@@ -258,7 +259,10 @@ def main():
                         print(f"  [skip] {exp}/{src_name}: missing {info}", flush=True)
                     continue
                 s = scores(gt, pred)
-                save_error_map(gt, pred, os.path.join(args.output_dir, f'{dom}_{exp}_{src_name}_errors.png'))
+                # error maps grouped by model: <output-dir>/<model>/<domain>_<source>_errors.png
+                exp_dir = os.path.join(args.output_dir, exp)
+                os.makedirs(exp_dir, exist_ok=True)
+                save_error_map(gt, pred, os.path.join(exp_dir, f'{dom}_{src_name}_errors.png'))
                 rows.append({'domain': dom, 'experiment': exp, 'source': src_name, 'patches_used': info, **s})
                 print(f"  {exp:32s} {src_name:6s} mIoU={s['miou']:6.2f}  IoU binder={s['iou_binder']:6.2f}  "
                       f"IoU aggr={s['iou_aggregates']:6.2f}  aggr% GT={s['gt_aggregate_fraction']:5.1f} "

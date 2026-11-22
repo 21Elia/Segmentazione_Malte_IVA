@@ -6,7 +6,7 @@ EVAL.SAVE_PREDICTIONS / EVAL.SAVE_CONFUSION are true, the prediction maps and th
 
 Usage (from the repository root):
     python tools/training/val_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml \
-        --run-dir output/campaign3/MMSFormer/MMSF-V3-GEN-060-p080-seed42 --vis-dir output/campaign3/results/v3_gen_060_seed42
+        --run-dir output/MMSFormer/MMSF-V3-GEN-060-p080-seed42 --vis-dir output/results/v3_gen_060_seed42
 """
 
 import os

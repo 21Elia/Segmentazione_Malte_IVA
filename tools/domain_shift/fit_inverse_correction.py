@@ -11,11 +11,11 @@ Each target and modality (NP, NX) gets its own parameters. Blur and noise are no
 Inverse closure test: the normalized W1 (W1 / max intra-Source W1, the metric of closure_test.csv)
 between the target and the Source is measured on the 9 channels, before and after the correction.
 
-Inputs (from tools/domain_shift/quantify_domain_shift.py, default output/domain_shift_analysis_v2/):
+Inputs (from tools/domain_shift/quantify_domain_shift.py, default output/domain_shift_analysis/):
   domain_shift_stats.npz   Source histograms and per-patch medians (reference)
   intra_source_w1.csv      normalization of W1
 
-Outputs (default output/domain_shift_analysis_v2/inverse_correction/):
+Outputs (default output/domain_shift_analysis/inverse_correction/):
   inverse_correction_params.json   {target: {NP: {gamma, contrast, saturation}, NX: {...}}}
                                    input of tools/evaluation/run_all_inferences_softmax.py --inverse-correction
   inverse_correction_fit.csv       fitted parameters, reciprocals of the forward fit, medians reached
@@ -74,7 +74,7 @@ def normalized_w1(H, source_hist, intra_max):
 
 def main():
     parser = argparse.ArgumentParser(description="Inverse photometric correction (target -> Source): fit and closure test")
-    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis_v2'))
+    parser.add_argument('--analysis-dir', default=os.path.join('output', 'domain_shift_analysis'))
     parser.add_argument('--output-dir', default=None, help="Default: <analysis-dir>/inverse_correction")
     parser.add_argument('--n-samples', type=int, default=400, help="Must match quantify_domain_shift.py")
     parser.add_argument('--seed', type=int, default=42, help="Must match quantify_domain_shift.py")
@@ -85,7 +85,7 @@ def main():
     stats = dict(np.load(os.path.join(args.analysis_dir, 'domain_shift_stats.npz')))
     intra = {(r['modality'], r['channel']): float(r['max'])
              for r in read_csv(os.path.join(args.analysis_dir, 'intra_source_w1.csv'))}
-    forward = {(r['modality'], r['operation']): r for r in read_csv(os.path.join(args.analysis_dir, 'exp4b_parameters.csv'))}
+    forward = {(r['modality'], r['operation']): r for r in read_csv(os.path.join(args.analysis_dir, 'data_driven_parameters.csv'))}
 
     params, fit_rows, closure_rows, previews = {}, [], [], {}
     for t in TARGETS:

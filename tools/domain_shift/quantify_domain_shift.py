@@ -14,7 +14,7 @@ data-driven photometric augmentation (thesis, Section 4.4). The statistics are i
   - texture: GLCM correlation on the content rectangle of every patch;
   - Source patches are sampled stratified by section.
 
-Data-driven parameters (exp4b_parameters.csv, file name kept for compatibility with existing outputs):
+Data-driven parameters (data_driven_parameters.csv):
   - gamma, contrast and saturation are fitted in sequence on Source calibration patches with the same
     torchvision functions used in training, so that the median V, the median gray standard deviation
     and the median S of the transformed Source match those of each target;
@@ -23,10 +23,10 @@ Data-driven parameters (exp4b_parameters.csv, file name kept for compatibility w
   The ranges used in training (configs/ablation/data_driven/) start from this rule, with the manual
   changes described in the thesis (Table 4.5).
 
-Outputs (default output/domain_shift_analysis_v2/):
-  domain_shift_report_v2.csv      long table: domain, modality, metric, key, value
+Outputs (default output/domain_shift_analysis/):
+  domain_shift_report.csv         long table: domain, modality, metric, key, value
   augmentation_suggestions.csv    per modality: median ratios per domain and a suggested range
-  exp4b_parameters.csv            fitted values per target and the range given by the 5% rule
+  data_driven_parameters.csv      fitted values per target and the range given by the 5% rule
   intra_source_w1.csv             W1 of each historical section against the others
   blur_calibration.csv            sigma -> residual normalized sharpness on the Source
   noise_calibration.csv           noise sigma -> normalized sharpness gain on the Source
@@ -68,7 +68,7 @@ def main():
     parser = argparse.ArgumentParser(description="Domain shift quantification (valid pixels only)")
     parser.add_argument('--n-samples', type=int, default=400, help="Patches per domain (Source: stratified by section)")
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--output-dir', default=os.path.join('output', 'domain_shift_analysis_v2'))
+    parser.add_argument('--output-dir', default=os.path.join('output', 'domain_shift_analysis'))
     parser.add_argument('--skip-glcm', action='store_true')
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -220,9 +220,9 @@ def main():
             w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows(data)
         print(f"Saved {os.path.join(args.output_dir, name)}")
 
-    write_csv('domain_shift_report_v2.csv', rows)
+    write_csv('domain_shift_report.csv', rows)
     write_csv('augmentation_suggestions.csv', suggestions)
-    write_csv('exp4b_parameters.csv', dd_rows)
+    write_csv('data_driven_parameters.csv', dd_rows)
     write_csv('intra_source_w1.csv', intra_rows)
     write_csv('blur_calibration.csv', [{'modality': m, **{f'sigma={s}': round(v, 4) for s, v in zip(BLUR_SIGMAS, c)}}
                                        for m, c in calib.items()])

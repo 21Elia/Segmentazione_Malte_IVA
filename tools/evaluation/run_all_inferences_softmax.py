@@ -2,7 +2,7 @@
 """
 Batch inference of the trained models on the patches of the new sections (out-of-domain).
 
-Every run folder under --runs-dir (default output/campaign3/MMSFormer, one folder per config and seed,
+Every run folder under --runs-dir (default output/MMSFormer, one folder per config and seed,
 written by tools/training/train_mm.py) is registered automatically: MMSF-V3-GEN-060-p080-seed42 becomes the model
 key 'v3_gen_060_p080_seed42'. For each model the best checkpoint of its folder is loaded, with the input
 normalization recorded in its .meta.json sidecar.
@@ -28,7 +28,7 @@ Usage (from the repository root):
     python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med v3_gen_060_p080 --domains 1_SCALA UNITO_B --tta
     python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
         --domains 1_SCALA UNITO_B \
-        --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json
+        --inverse-correction output/domain_shift_analysis/inverse_correction/inverse_correction_params.json
     python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med --patches-dir data/mortars --pattern 'sec10_*'
 """
 
@@ -57,8 +57,8 @@ from semseg.checkpoints import find_best_checkpoint, read_checkpoint_meta, load_
 
 Image.MAX_IMAGE_PIXELS = None
 
-DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
-DEFAULT_OUTPUT_ROOT = os.path.join('output', 'campaign3')
+DEFAULT_RUNS_DIR = os.path.join('output', 'MMSFormer')
+DEFAULT_OUTPUT_ROOT = 'output'
 
 # Patch folders (tools/preprocessing/preprocess_new_images.py, tools/preprocessing/preprocess_5x.py) and output sub-folder of each domain
 DOMAINS_REGISTRY = {

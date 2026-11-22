@@ -2,7 +2,6 @@
 data/
 output/
 checkpoints/
-docs
 
 # Model weights
 *.pt

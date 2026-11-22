@@ -4,7 +4,7 @@
 # Run folder: <SAVE_DIR>/MMSF-V3-DD1-NOISE-030-p080[-seedN].
 
 DEVICE          : cuda
-SAVE_DIR        : 'output/campaign3/MMSFormer'   # run folders, one per config and seed
+SAVE_DIR        : 'output/MMSFormer'   # run folders, one per config and seed
 GPUs            : 1
 GPU_IDs         : [0]
 USE_WANDB       : false
@@ -86,8 +86,8 @@ EVAL:
   MODEL_PATH    : ''
   IMAGE_SIZE    : [512, 512]
   BATCH_SIZE    : 1
-  SAVE_PREDICTIONS : true
-  ERROR_THRESHOLD  : -1.0
+  SAVE_PREDICTIONS : false              # true: copy NP, NX, label and prediction of the test patches to VIS_SAVE_DIR
+  ERROR_THRESHOLD  : -1.0               # only patches with a higher error rate are saved (-1 = all)
   SAVE_CONFUSION   : true
-  VIS_SAVE_DIR     : 'output/campaign3/results/v3_dd1_noise_030'
-  CONFUSION_DIR    : 'output/campaign3/confusion/v3_dd1_noise_030'
+  VIS_SAVE_DIR     : 'output/results/v3_dd1_noise_030'
+  CONFUSION_DIR    : 'output/confusion/v3_dd1_noise_030'
