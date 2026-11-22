@@ -156,6 +156,7 @@ Mean +- standard deviation across seeds (mIoU, %), as printed by `summarize_resu
 | Generic, high frequency | 3 | 77.62 +- 1.08 | 48.3 +- 9.0 | 45.0 +- 7.5 | 46.6 +- 7.5 |
 | Generic, low frequency | 3 | 76.88 +- 0.23 | 66.9 +- 3.3 | 66.5 +- 1.9 | 66.7 +- 2.4 |
 | Baseline + inverse correction | 3 | - | 54.7 +- 3.5 | 59.3 +- 5.4 | 57.0 +- 1.9 |
+| Generic pipeline + inverse correction | 3 | - | 64.7 +- 1.9 | 69.9 +- 2.6 | 67.3 +- 2.2 |
 
 **Training is not deterministic.** `semseg/utils/utils.py` sets `cudnn.benchmark = True` and
 `cudnn.deterministic = False`, and GPUs differ numerically: retraining with the same config and seed gives a
