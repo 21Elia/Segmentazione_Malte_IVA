@@ -15,6 +15,12 @@ For every patch pair (NP, NX) the predicted class map is saved as a PNG (green =
 
 Outputs: <output-root>/inference_nuove/inference_nuove_<model>/<SECTION>/MMSFormer-B3/<masks dir>/<patch>.png
 for 1_SCALA and UNITO_B, <output-root>/inference_5x/inference_5x_scale=057_<model>/ARCHEO_02/... for ARCHEO_02.
+
+Any other patch folder with paralleli/ and incrociati/ sub-folders (e.g. the historical sections in data/mortars)
+can be given with --patches-dir instead of --domains; --pattern keeps only the patches whose file name matches
+(e.g. 'sec10_*' for one section). Masks go to <output-root>/inference_custom/inference_custom_<model>/<NAME>/...
+Patches of data/mortars include the training set: use these maps to inspect the predictions, and
+tools/training/val_mm.py for the test-set metrics.
 They are read by tools/evaluation/eval_ood_gt.py and tools/evaluation/reconstruct_section.py.
 
 Usage (from the repository root):
@@ -23,6 +29,7 @@ Usage (from the repository root):
     python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
         --domains 1_SCALA UNITO_B \
         --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json
+    python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med --patches-dir data/mortars --pattern 'sec10_*'
 """
 
 import os
@@ -103,9 +110,9 @@ def get_preprocessing(normalization, size=(512, 512)):
     ])
 
 
-def domain_files(dom_info):
-    """Sorted list of NP patch paths of a domain."""
-    return sorted(glob.glob(os.path.join(dom_info['patches_dir'], 'paralleli', '**', '*.tif'), recursive=True))
+def domain_files(dom_info, pattern='*'):
+    """Sorted list of NP patch paths of a domain whose file name matches pattern."""
+    return sorted(glob.glob(os.path.join(dom_info['patches_dir'], 'paralleli', '**', pattern + '.tif'), recursive=True))
 
 
 def load_model(checkpoint_path, device):
@@ -145,6 +152,13 @@ def main():
     parser.add_argument('--models', nargs='+', default=None,
                         help="Model keys (e.g. v3_baseline_med v3_gen_060_p080_seed42); default: every run in --runs-dir")
     parser.add_argument('--domains', nargs='+', default=list(DOMAINS_REGISTRY), choices=list(DOMAINS_REGISTRY))
+    parser.add_argument('--patches-dir', default=None,
+                        help="Any patch folder with paralleli/ and incrociati/ sub-folders (e.g. data/mortars); "
+                             "replaces --domains")
+    parser.add_argument('--name', default=None,
+                        help="Output sub-folder of --patches-dir (default: the folder name, plus the pattern if given)")
+    parser.add_argument('--pattern', default='*',
+                        help="Keep only the patches whose file name (without .tif) matches, e.g. 'sec10_*'")
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--save-softmax', action='store_true',
                         help="Also save the float16 softmax maps (.npy, several GB)")
@@ -155,6 +169,15 @@ def main():
                              "(inverse_correction_params.json) to every NP/NX patch; masks go to masks_corr/ "
                              "(masks_tta_corr/ with --tta), so the uncorrected predictions are kept")
     args = parser.parse_args()
+
+    # Domains to process: the registered new sections, or a single folder given with --patches-dir
+    domains = {k: DOMAINS_REGISTRY[k] for k in args.domains}
+    if args.patches_dir:
+        name = args.name or os.path.basename(os.path.normpath(args.patches_dir))
+        if not args.name and args.pattern != '*':
+            name += '_' + args.pattern.replace('*', '').replace('?', '').strip('_')
+        domains = {name: {'patches_dir': args.patches_dir,
+                          'vis_save_dir': f'inference_custom/inference_custom_{{exp}}/{name}'}}
 
     registry = discover_models(args.runs_dir)
     models = args.models or list(registry)
@@ -168,7 +191,7 @@ def main():
 
     print("=" * 80)
     print(f"Models          : {models}")
-    print(f"Domains         : {args.domains}")
+    print(f"Domains         : {list(domains)}" + (f" (pattern {args.pattern})" if args.pattern != '*' else ''))
     print(f"Device          : {device}")
     print(f"TTA             : {'8 transforms' if args.tta else 'off (single forward pass)'}")
     print(f"Inverse correct.: {args.inverse_correction or 'none'}")
@@ -190,8 +213,7 @@ def main():
         model = load_model(ckpt_path, device)
         preprocess = get_preprocessing(normalization)
 
-        for dom_key in args.domains:
-            dom_info = DOMAINS_REGISTRY[dom_key]
+        for dom_key, dom_info in domains.items():
             if correction is not None and dom_key not in correction:
                 print(f"  [Skip] No inverse-correction parameters for domain {dom_key}")
                 continue
@@ -205,7 +227,7 @@ def main():
             if args.save_softmax:
                 os.makedirs(softmax_dir, exist_ok=True)
 
-            files = domain_files(dom_info)
+            files = domain_files(dom_info, args.pattern)
             if not files:
                 print(f"  [Skip] No patch files found for domain {dom_key} in {dom_info['patches_dir']}")
                 continue

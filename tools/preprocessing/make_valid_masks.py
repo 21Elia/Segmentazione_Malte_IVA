@@ -10,7 +10,7 @@ cross-checked against the ignore label 3 written by preprocess.py.
 
 Usage (from the repository root):
     python tools/preprocessing/make_valid_masks.py
-    python tools/preprocessing/make_valid_masks.py --datasets data/mortars_v2
+    python tools/preprocessing/make_valid_masks.py --datasets data/mortars
 """
 
 import os
@@ -26,7 +26,7 @@ from semseg.patch_geometry import valid_mask
 
 # dataset root -> where its grid_metadata.json files live (one per section)
 DEFAULT_DATASETS = [
-    'data/mortars_v2',
+    'data/mortars',
     'data/nuove_patches/1_SCALA',
     'data/nuove_patches/UNITO_B',
     'data/patches_5x_scale=057/ARCHEO_02',

@@ -323,7 +323,7 @@ def process_section(section_name, file_map, output_dir, samples_dir, patch_size=
 def main():
     parser = argparse.ArgumentParser(description="Mortar dataset pre-processing script for MMSFormer")
     parser.add_argument('--src', type=str, default='../DIA_FIRENZE', help="Path to raw mortar sections directory")
-    parser.add_argument('--dst', type=str, default='data/mortars_v2', help="Output directory for processed dataset (DATASET.ROOT of the configs)")
+    parser.add_argument('--dst', type=str, default='data/mortars', help="Output directory for processed dataset (DATASET.ROOT of the configs)")
     parser.add_argument('--samples-dir', type=str, default='output/alignment_samples_v2', help="Output directory for alignment samples")
     parser.add_argument('--patch-size', type=int, default=512, help="Square patch dimension in pixels (default: 512)")
     parser.add_argument('--grid-size', type=int, default=512, help="Grid step size for patch extraction in pixels (default: 512)")

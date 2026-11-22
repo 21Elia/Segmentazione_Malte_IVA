@@ -2,7 +2,7 @@
 Helpers shared by the preprocessing tools (thesis, Chapter 2): centered padding, validity of a grid cell,
 NP/NX alignment of a patch pair by phase correlation, false-colour alignment previews.
 
-  tools/preprocessing/preprocess.py             historical sections (labelled), data/mortars_v2
+  tools/preprocessing/preprocess.py             historical sections (labelled), data/mortars
   tools/preprocessing/preprocess_new_images.py  1_SCALA and UNITO_B, data/nuove_patches
   tools/preprocessing/preprocess_5x.py          ARCHEO_02 (5X objective, rescaled), data/patches_5x_scale=057
   tools/preprocessing/inspect_and_mask_5x.py    validity mask of ARCHEO_02

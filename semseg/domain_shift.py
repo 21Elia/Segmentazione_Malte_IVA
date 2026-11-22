@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Patch folders of each domain (tools/preprocessing/preprocess.py, tools/preprocessing/preprocess_new_images.py, tools/preprocessing/preprocess_5x.py)
 DOMAINS = {
-    'Source': 'data/mortars_v2',
+    'Source': 'data/mortars',
     '1_SCALA': 'data/nuove_patches/1_SCALA',
     'UNITO_B': 'data/nuove_patches/UNITO_B',
     'ARCHEO_02': 'data/patches_5x_scale=057/ARCHEO_02',

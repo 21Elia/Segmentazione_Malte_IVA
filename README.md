@@ -76,7 +76,7 @@ Generated data (`data/`) and results (`output/`) are written inside the reposito
 
 | Folder | Content | Written by |
 |---|---|---|
-| `data/mortars_v2/` | 3866 patches 512 x 512 of the 11 historical sections with NP/NX/label (3305 without section 5) | `preprocess.py` |
+| `data/mortars/` | 3866 patches 512 x 512 of the 11 historical sections with NP/NX/label (3305 without section 5) | `preprocess.py` |
 | `data/nuove_patches/{1_SCALA,UNITO_B}/` | 236 and 72 patches, no labels | `preprocess_new_images.py` |
 | `data/patches_5x_scale=057/ARCHEO_02/` | 539 patches after rescaling by S = 0.57 | `preprocess_5x.py` |
 | `*/valid/` | per-patch masks of the alignment padding | `make_valid_masks.py` |
@@ -86,7 +86,7 @@ Generated data (`data/`) and results (`output/`) are written inside the reposito
 | `output/campaign3/gt_ood/`, `gt_ood_corr/` | out-of-domain metrics and error maps | `eval_ood_gt.py` |
 | `output/campaign3/summary/` | tables of the ablation | `summarize_results.py` |
 
-The folder names `mortars_v2`, `domain_shift_analysis_v2`, `campaign3` and the `MMSF-V3-` prefix of the run
+The folder names `domain_shift_analysis_v2`, `campaign3` and the `MMSF-V3-` prefix of the run
 folders are those of the results of the thesis and are kept so that the existing outputs stay readable.
 
 ## Reproducing the thesis
