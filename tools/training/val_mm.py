@@ -5,13 +5,13 @@ Writes eval_<timestamp>.txt (IoU, F1 and accuracy per class) next to the evaluat
 EVAL.SAVE_PREDICTIONS / EVAL.SAVE_CONFUSION are true, the prediction maps and the confusion matrix.
 
 Usage (from the repository root):
-    python tools/val_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml \
+    python tools/training/val_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml \
         --run-dir output/campaign3/MMSFormer/MMSF-V3-GEN-060-p080-seed42 --vis-dir output/campaign3/results/v3_gen_060_seed42
 """
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import torch
 import argparse
 import yaml

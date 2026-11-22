@@ -9,10 +9,10 @@ This script:
 4. Saves preview visualizations showing the mask overlay in semi-transparent color over NP image.
 
 Outputs (default output/inspection/): <SECTION>_validity_mask.tif (full resolution, 0 = mortar,
-255 = background), read by tools/preprocess_new_images.py, plus a downscaled preview and an overlay.
+255 = background), read by tools/preprocessing/preprocess_new_images.py, plus a downscaled preview and an overlay.
 
 Usage (from the repository root):
-    python tools/inspect_and_mask_new_images.py
+    python tools/preprocessing/inspect_and_mask_new_images.py
 """
 
 import os
@@ -31,7 +31,7 @@ import numpy as np
 from PIL import Image
 from skimage.registration import phase_cross_correlation
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.preprocessing import find_image
 
 def get_image_pairs(nuove_img_dir):
@@ -40,7 +40,7 @@ def get_image_pairs(nuove_img_dir):
     Returns a list of dicts: [{'name': ..., 'np': path, 'nx': path}, ...]
     """
     pairs = []
-    # Same lookup as tools/preprocess_new_images.py: the folder itself, then its subfolders
+    # Same lookup as tools/preprocessing/preprocess_new_images.py: the folder itself, then its subfolders
     for name, np_file, nx_file in (('1_SCALA', '1NP_SCALA.tif', '1NX_SCALA.tif'),
                                    ('UNITO_B', 'NP_UNITO_BW_B.tif', 'NX_UNITO_B.tif')):
         np_path, nx_path = find_image(nuove_img_dir, np_file), find_image(nuove_img_dir, nx_file)

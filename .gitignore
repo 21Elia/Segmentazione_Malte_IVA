@@ -1,17 +1,17 @@
-# Cartelle pesanti e dati
+# Large folders and data
 data/
 output/
 checkpoints/
 docs
 
-# Modelli e pesi AI
+# Model weights
 *.pt
 *.pth
 *.h5
 *.onnx
 *.engine
 
-# Cache Python e ambienti virtuali
+# Python cache and virtual environments
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,12 +22,12 @@ venv/
 ENV/
 .venv/
 
-# File di log e temporanei
+# Log and temporary files
 *.log
 *.tmp
 *.temp
 
-# File di sistema e IDE
+# System and IDE files
 .DS_Store
 .DS_Store?
 ._*

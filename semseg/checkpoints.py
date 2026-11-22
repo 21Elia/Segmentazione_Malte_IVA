@@ -1,5 +1,5 @@
 """
-Checkpoints written by tools/train_mm.py and how to find and load them.
+Checkpoints written by tools/training/train_mm.py and how to find and load them.
 
 Every saved checkpoint '<name>.pth' has a sidecar '<name>.pth.meta.json' with the settings needed
 to use it consistently (normalization, dataset, augmentation, seed, epoch, validation mIoU).

@@ -55,7 +55,7 @@ BASELINE_KEYS = ['v3_baseline_med', 'v3_baseline_med_seed42', 'v3_baseline_med_s
 
 
 def run_folder(cfg_path, seed):
-    """Run folder written by tools/train_mm.py: WANDB_NAME [+ -pXXX from P_IMAGE] [+ -seedN]."""
+    """Run folder written by tools/training/train_mm.py: WANDB_NAME [+ -pXXX from P_IMAGE] [+ -seedN]."""
     import yaml
     with open(cfg_path, encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
@@ -82,20 +82,20 @@ def all_runs(only=None):
 def stage_commands(stage, args):
     if stage == 'preprocess':
         return [
-            [PY, 'tools/preprocess.py'],
-            [PY, 'tools/inspect_and_mask_new_images.py'],
-            [PY, 'tools/preprocess_new_images.py'],
-            [PY, 'tools/inspect_and_mask_5x.py'],
-            [PY, 'tools/preprocess_5x.py'],
-            [PY, 'tools/make_valid_masks.py'],
+            [PY, 'tools/preprocessing/preprocess.py'],
+            [PY, 'tools/preprocessing/inspect_and_mask_new_images.py'],
+            [PY, 'tools/preprocessing/preprocess_new_images.py'],
+            [PY, 'tools/preprocessing/inspect_and_mask_5x.py'],
+            [PY, 'tools/preprocessing/preprocess_5x.py'],
+            [PY, 'tools/preprocessing/make_valid_masks.py'],
         ]
     if stage == 'domain_shift':
         return [
-            [PY, 'tools/quantify_domain_shift.py', '--output-dir', ANALYSIS_DIR],
-            [PY, 'tools/plot_domain_shift.py', '--analysis-dir', ANALYSIS_DIR],
-            [PY, 'tools/check_augmentation_params.py', '--analysis-dir', ANALYSIS_DIR,
+            [PY, 'tools/domain_shift/quantify_domain_shift.py', '--output-dir', ANALYSIS_DIR],
+            [PY, 'tools/domain_shift/plot_domain_shift.py', '--analysis-dir', ANALYSIS_DIR],
+            [PY, 'tools/domain_shift/check_augmentation_params.py', '--analysis-dir', ANALYSIS_DIR,
              '--cfg', f'{DD}/full/mortars_v3_dd-060.yaml'],
-            [PY, 'tools/fit_inverse_correction.py', '--analysis-dir', ANALYSIS_DIR],
+            [PY, 'tools/domain_shift/fit_inverse_correction.py', '--analysis-dir', ANALYSIS_DIR],
         ]
     if stage == 'train':
         cmds = []
@@ -103,32 +103,32 @@ def stage_commands(stage, args):
             if os.path.isfile(os.path.join(folder, 'train_summary.json')) and not args.dry_run:
                 print(f"[skip] {folder} already trained")
                 continue
-            cmds.append([PY, 'tools/train_mm.py', '--cfg', cfg] + ([] if seed == DEFAULT_SEED else ['--seed', str(seed)]))
+            cmds.append([PY, 'tools/training/train_mm.py', '--cfg', cfg] + ([] if seed == DEFAULT_SEED else ['--seed', str(seed)]))
         return cmds
     if stage == 'replica':
-        return [[PY, 'tools/train_mm.py', '--cfg', REPLICA]]
+        return [[PY, 'tools/training/train_mm.py', '--cfg', REPLICA]]
     if stage == 'test':
         runs = all_runs(args.only) + [(REPLICA, DEFAULT_SEED, run_folder(REPLICA, DEFAULT_SEED))]
-        return [[PY, 'tools/val_mm.py', '--cfg', cfg, '--run-dir', folder,
+        return [[PY, 'tools/training/val_mm.py', '--cfg', cfg, '--run-dir', folder,
                  '--vis-dir', os.path.join(OUTPUT_ROOT, 'results', model_key(folder))]
                 for cfg, _, folder in runs if os.path.isdir(folder) or args.dry_run]
     if stage == 'infer':
         params = os.path.join(ANALYSIS_DIR, 'inverse_correction', 'inverse_correction_params.json')
         return [
-            [PY, 'tools/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', 'ARCHEO_02'],
-            [PY, 'tools/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', '--tta'],
-            [PY, 'tools/run_all_inferences_softmax.py', '--models', *BASELINE_KEYS,
+            [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', 'ARCHEO_02'],
+            [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--domains', '1_SCALA', 'UNITO_B', '--tta'],
+            [PY, 'tools/evaluation/run_all_inferences_softmax.py', '--models', *BASELINE_KEYS,
              '--domains', '1_SCALA', 'UNITO_B', '--inverse-correction', params],
         ]
     if stage == 'evaluate':
         return [
-            [PY, 'tools/eval_ood_gt.py', '--sources', 'single', 'tta',
+            [PY, 'tools/evaluation/eval_ood_gt.py', '--sources', 'single', 'tta',
              '--output-dir', os.path.join(OUTPUT_ROOT, 'gt_ood')],
-            [PY, 'tools/eval_ood_gt.py', '--experiments', *BASELINE_KEYS, '--sources', 'single', 'corr',
+            [PY, 'tools/evaluation/eval_ood_gt.py', '--experiments', *BASELINE_KEYS, '--sources', 'single', 'corr',
              '--output-dir', os.path.join(OUTPUT_ROOT, 'gt_ood_corr')],
         ]
     if stage == 'summary':
-        return [[PY, 'tools/summarize_results.py',
+        return [[PY, 'tools/evaluation/summarize_results.py',
                  '--corr-csv', os.path.join(OUTPUT_ROOT, 'gt_ood_corr', 'gt_ood_metrics.csv')]]
     raise ValueError(stage)
 

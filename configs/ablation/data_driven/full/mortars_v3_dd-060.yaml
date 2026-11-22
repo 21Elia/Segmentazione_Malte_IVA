@@ -1,5 +1,5 @@
 # Ablation - full data-driven pipeline (thesis, Section 4.4): asynchronous NP/NX operations with ranges
-# derived from the domain shift measurements (tools/quantify_domain_shift.py), every op at P_op = 0.6.
+# derived from the domain shift measurements (tools/domain_shift/quantify_domain_shift.py), every op at P_op = 0.6.
 # A pair is selected for photometric augmentation with P_IMAGE = 0.8; every op then fires independently.
 # It differs from configs/ablation/generic/mortars_v3_gen-060.yaml in the ranges, the op set and SYNC.
 # Run folder: <SAVE_DIR>/MMSF-V3-DD-060-p080[-seedN].
@@ -19,7 +19,7 @@ MODEL:
 
 DATASET:
   NAME          : MORTARS
-  ROOT          : 'data/mortars_v2'       # historical sections, from tools/preprocess.py
+  ROOT          : 'data/mortars_v2'       # historical sections, from tools/preprocessing/preprocess.py
   IGNORE_LABEL  : 3                       # alignment padding
   MODALS        : ['paralleli', 'incrociati']
   NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates

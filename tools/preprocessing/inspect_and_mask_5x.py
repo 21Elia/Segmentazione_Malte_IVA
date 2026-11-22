@@ -6,7 +6,7 @@ Workflow:
 1. Disables image size limits for gigapixel handling.
 2. Locates matching NP and NX 5X image pairs in DIA_FIRENZE/Prova immagini 5X.
 3. Loads the 5X NP & NX images downscaled by --scale (default 0.20, only to compute the mask faster)
-   using cv2.INTER_AREA; tools/preprocess_5x.py resizes the mask to its own resolution.
+   using cv2.INTER_AREA; tools/preprocessing/preprocess_5x.py resizes the mask to its own resolution.
 4. Generates a solid binary validity mask (0=Valid Mortar, 255=Background/Resin)
    leveraging multi-modal polarization birefringence (NX) and solid contour filling.
 5. Saves 1:1 TIFF mask and preview overlay visualizations.
@@ -26,7 +26,7 @@ except Exception:
 
 import numpy as np
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.preprocessing import pad_image_to_size, get_5x_image_pairs
 from PIL import Image
 

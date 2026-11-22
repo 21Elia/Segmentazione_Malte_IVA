@@ -3,7 +3,7 @@
 Semantic segmentation of thin sections of historical mortars into **binder** and **aggregates**, from
 plane-polarized (NP, *Nicols Paralleli*) and cross-polarized (NX, *Nicols Incrociati*) images, with
 [MMSFormer](https://github.com/csiplab/MMSFormer)-B3. The code accompanies the bachelor's thesis
-*Segmentazione Semantica Multimodale di Malte Storiche: Mitigazione del Domain Shift tramite Vision
+*MSegmentazione Semantica Multimodale di Malte Storiche: Mitigazione del Domain Shift tramite Vision
 Transformer e Data-Driven Augmentation* (Elia Awad, Università degli Studi di Firenze, 2026). It starts from the
 project of L. Notari for the Image and Video Analysis course, itself based on the original MMSFormer code
 (see `README_ORIGINALE.md`).
@@ -32,6 +32,11 @@ semseg/                     library
   preprocessing.py          helpers of the preprocessing tools (padding, NP/NX alignment, previews)
   domain_shift.py           statistics of the domain shift analysis and fit of the data-driven parameters
 tools/                      scripts, run from the repository root (see "Reproducing the thesis")
+  reproduce_thesis.py       runs the whole pipeline with the arguments used in the thesis
+  preprocessing/            NP/NX alignment, labels, validity masks and patches of every section
+  domain_shift/             domain shift analysis, data-driven parameters, inverse correction fit
+  training/                 training and test-set evaluation
+  evaluation/               predictions on the new sections, out-of-domain metrics, result tables
 ```
 
 ## Installation
@@ -99,21 +104,21 @@ The single steps:
 
 | Step | Command | Thesis |
 |---|---|---|
-| Historical patches, NP/NX alignment, labels | `python tools/preprocess.py` | 2.1, 2.3, 2.4 |
-| Validity masks of the new sections | `python tools/inspect_and_mask_new_images.py`, `python tools/inspect_and_mask_5x.py` | 2.4 |
-| Patches of the new sections (ARCHEO_02 rescaled) | `python tools/preprocess_new_images.py`, `python tools/preprocess_5x.py` | 2.2, 2.5 |
-| Padding masks | `python tools/make_valid_masks.py` | 2.4 |
-| Domain shift statistics and data-driven parameters | `python tools/quantify_domain_shift.py` | 3, 4.4 |
-| Figures of the analysis | `python tools/plot_domain_shift.py` | 3 |
-| Closure test, coverage of a config | `python tools/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml` | 4.4.4 |
-| Inverse correction parameters | `python tools/fit_inverse_correction.py` | 6.9 |
-| Training (one run) | `python tools/train_mm.py --cfg <config> [--seed 42]` | 5.1, 5.3 |
-| Test set | `python tools/val_mm.py --cfg <config> --run-dir <run folder>` | 6 |
-| Predictions on the new sections | `python tools/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B [--tta]` | 6, 6.8 |
-| Predictions with inverse correction | `python tools/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json` | 6.9 |
-| Out-of-domain metrics | `python tools/eval_ood_gt.py --sources single tta` | 2.6, 5.5, 6 |
-| Tables of the ablation | `python tools/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv` | 6 |
-| Full-section prediction map | `python tools/reconstruct_section.py --meta <grid_metadata.json> --pred-dir <masks folder> --output <png>` | 2.6 |
+| Historical patches, NP/NX alignment, labels | `python tools/preprocessing/preprocess.py` | 2.1, 2.3, 2.4 |
+| Validity masks of the new sections | `python tools/preprocessing/inspect_and_mask_new_images.py`, `python tools/preprocessing/inspect_and_mask_5x.py` | 2.4 |
+| Patches of the new sections (ARCHEO_02 rescaled) | `python tools/preprocessing/preprocess_new_images.py`, `python tools/preprocessing/preprocess_5x.py` | 2.2, 2.5 |
+| Padding masks | `python tools/preprocessing/make_valid_masks.py` | 2.4 |
+| Domain shift statistics and data-driven parameters | `python tools/domain_shift/quantify_domain_shift.py` | 3, 4.4 |
+| Figures of the analysis | `python tools/domain_shift/plot_domain_shift.py` | 3 |
+| Closure test, coverage of a config | `python tools/domain_shift/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml` | 4.4.4 |
+| Inverse correction parameters | `python tools/domain_shift/fit_inverse_correction.py` | 6.9 |
+| Training (one run) | `python tools/training/train_mm.py --cfg <config> [--seed 42]` | 5.1, 5.3 |
+| Test set | `python tools/training/val_mm.py --cfg <config> --run-dir <run folder>` | 6 |
+| Predictions on the new sections | `python tools/evaluation/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B [--tta]` | 6, 6.8 |
+| Predictions with inverse correction | `python tools/evaluation/run_all_inferences_softmax.py --models <baselines> --domains 1_SCALA UNITO_B --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json` | 6.9 |
+| Out-of-domain metrics | `python tools/evaluation/eval_ood_gt.py --sources single tta` | 2.6, 5.5, 6 |
+| Tables of the ablation | `python tools/evaluation/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv` | 6 |
+| Full-section prediction map | `python tools/evaluation/reconstruct_section.py --meta <grid_metadata.json> --pred-dir <masks folder> --output <png>` | 2.6 |
 
 ### Runs of the ablation
 

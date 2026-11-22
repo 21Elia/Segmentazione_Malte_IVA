@@ -13,8 +13,8 @@ Workflow:
 7. Saves aligned patches to data/patches_5x_scale=057/ARCHEO_02/(paralleli|incrociati)
    and serializes grid_metadata.json for section reconstruction.
 
-Usage (from the repository root, after tools/inspect_and_mask_5x.py):
-    python tools/preprocess_5x.py
+Usage (from the repository root, after tools/preprocessing/inspect_and_mask_5x.py):
+    python tools/preprocessing/preprocess_5x.py
 """
 
 import os
@@ -34,7 +34,7 @@ import numpy as np
 from PIL import Image
 from skimage.registration import phase_cross_correlation
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.preprocessing import pad_image_to_size, is_valid_patch_position, create_false_color_rgb, align_patch_pair, get_5x_image_pairs
 
 Image.MAX_IMAGE_PIXELS = None

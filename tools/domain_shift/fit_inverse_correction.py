@@ -11,19 +11,19 @@ Each target and modality (NP, NX) gets its own parameters. Blur and noise are no
 Inverse closure test: the normalized W1 (W1 / max intra-Source W1, the metric of closure_test.csv)
 between the target and the Source is measured on the 9 channels, before and after the correction.
 
-Inputs (from tools/quantify_domain_shift.py, default output/domain_shift_analysis_v2/):
+Inputs (from tools/domain_shift/quantify_domain_shift.py, default output/domain_shift_analysis_v2/):
   domain_shift_stats.npz   Source histograms and per-patch medians (reference)
   intra_source_w1.csv      normalization of W1
 
 Outputs (default output/domain_shift_analysis_v2/inverse_correction/):
   inverse_correction_params.json   {target: {NP: {gamma, contrast, saturation}, NX: {...}}}
-                                   input of tools/run_all_inferences_softmax.py --inverse-correction
+                                   input of tools/evaluation/run_all_inferences_softmax.py --inverse-correction
   inverse_correction_fit.csv       fitted parameters, reciprocals of the forward fit, medians reached
   inverse_closure_test.csv         normalized W1 per channel, before and after the correction
   inverse_correction_preview.png   one patch per target and modality, before and after
 
 Usage (from the repository root, CPU only):
-    python tools/fit_inverse_correction.py
+    python tools/domain_shift/fit_inverse_correction.py
 """
 
 import os
@@ -40,7 +40,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
                                  load_pair, to_tensor, apply_tone, fit_tone, w1, w1_circular)
 
@@ -136,7 +136,7 @@ def main():
             previews[(t, m)] = (tensors[idx][0], apply_tone(tensors[idx][0], g, c, s))
 
     with open(os.path.join(out_dir, 'inverse_correction_params.json'), 'w', encoding='utf-8') as f:
-        json.dump({'description': "Inverse photometric correction target -> Source (tools/fit_inverse_correction.py). "
+        json.dump({'description': "Inverse photometric correction target -> Source (tools/domain_shift/fit_inverse_correction.py). "
                                   "Order: gamma -> contrast -> saturation, torchvision functions on uint8 RGB.",
                    'params': params}, f, indent=2)
     for name, rows in (('inverse_correction_fit.csv', fit_rows), ('inverse_closure_test.csv', closure_rows)):

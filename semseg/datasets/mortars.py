@@ -18,7 +18,8 @@ import yaml
 
 class MORTARS(Dataset):
     """
-    Dataset per immagini mortars con 2 canali RGB e label con 3 classi + ignore
+    Mortar thin sections: two RGB modalities (NP, NX) and labels with 3 classes + ignore (porosity merged into
+    binder when num_classes = 2). Section 5 is excluded; train / val / test split with a fixed seed.
     """
 
     def __init__(
@@ -35,18 +36,19 @@ class MORTARS(Dataset):
     ):
         super().__init__()
 
+        # Class names are kept in Italian: they appear in the eval_*.txt tables read by summarize_results.py
         if num_classes == 2 :
             self.CLASSES = ["Legante", "Aggregati"]
             self.PALETTE = torch.tensor([
-                [0, 0, 0],    # legante nero (classe 0)
-                [0, 255, 0]   # aggregati verdi (classe 1)
+                [0, 0, 0],    # binder, black (class 0)
+                [0, 255, 0]   # aggregates, green (class 1)
             ])
         else:
             self.CLASSES = ["Legante", "Porosità", "Aggregati"]
             self.PALETTE = torch.tensor([
-                [0, 0, 0],  #legante nero
-                [255, 0, 0], #porosità rosso
-                [0, 255, 0]  #aggregati verdi
+                [0, 0, 0],  # binder, black
+                [255, 0, 0], # porosity, red
+                [0, 255, 0]  # aggregates, green
             ])
 
         # 'all' = every patch, no split (e.g. out-of-domain patches with ground truth)
@@ -56,17 +58,17 @@ class MORTARS(Dataset):
         self.n_classes = len(self.CLASSES)  
 
         if self.n_classes == 2:
-            self.label_mapping = torch.tensor([0, 0, 1, 3]) # per incorporare la classe porosità alla classe legante
+            self.label_mapping = torch.tensor([0, 0, 1, 3]) # merges porosity into binder
 
         self.ignore_label = 3
 
         # --------------------------------------------------
-        # 1. carico TUTTI i file dal dataset unico (escludendo Sezione 5)
+        # 1. all the patches of the dataset (section 5 excluded)
         # --------------------------------------------------
         all_files = sorted(
             glob.glob(os.path.join(root, modals[0], '*.tif'))
         )
-        # Escludi le patch della Sezione 5 (come nel dataset Notari 2classes_no5)
+        # Section 5 is excluded (as in the 2classes_no5 dataset of Notari)
         all_files = [
             f for f in all_files
             if not (os.path.basename(f).startswith(('sec5_', 'sec05_')) or '_sec5_' in os.path.basename(f))
@@ -76,7 +78,7 @@ class MORTARS(Dataset):
             raise RuntimeError(f"No images found in {os.path.join(root, modals[0])}")
 
         # --------------------------------------------------
-        # 2. split riproducibile
+        # 2. reproducible split
         # --------------------------------------------------
         if split == 'all':
             self.files = all_files
@@ -102,7 +104,7 @@ class MORTARS(Dataset):
     
     
     def _open_img(self, file):
-        img = Image.open(file).convert('RGB')  # forza RGB
+        img = Image.open(file).convert('RGB')  # forces RGB
         img = TF.to_tensor(img)  
         img = (img * 255).byte() 
         return img
@@ -118,13 +120,13 @@ class MORTARS(Dataset):
     def __getitem__(self, index: int) -> Tuple[list, Tensor]:
         sample = {}
 
-        # apro le immagini dei modali
+        # images of the modalities
         for modal in self.modals:
             img_path = self.files[index].replace(self.modals[0], modal)
             img = self._open_img(img_path)
             sample[modal] = img
 
-        # apro la label
+        # label
         lbl_path = self.files[index].replace(self.modals[0], 'label')
         label = self._open_label(lbl_path)
         label[label == 255] = self.ignore_label
@@ -138,7 +140,7 @@ class MORTARS(Dataset):
         label = label.squeeze(0)  
         sample_list = [sample[m] for m in self.modals]
         if self.n_classes == 2:
-            label = self.label_mapping[label] # rimappa le classi senza porosità
+            label = self.label_mapping[label] # remaps the classes without porosity
 
 
         return sample_list, label.long(), os.path.basename(img_path)

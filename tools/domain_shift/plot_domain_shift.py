@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Figures of the domain shift analysis (thesis, Chapter 3), from the outputs of tools/quantify_domain_shift.py.
+Figures of the domain shift analysis (thesis, Chapter 3), from the outputs of tools/domain_shift/quantify_domain_shift.py.
 
 Reads domain_shift_stats.npz and the CSV files of the analysis folder; only the example-patch
 figure opens images. Writes every figure to <analysis folder>/figures/ with the ds2_ prefix:
@@ -18,9 +18,9 @@ figure opens images. Writes every figure to <analysis folder>/figures/ with the 
   ds2_w1_normalized_heatmap.png, ds2_sharpness.png, ds2_glcm_correlation.png
                                    copies of the figures written by quantify_domain_shift.py
 
-Usage (from the repository root, after tools/quantify_domain_shift.py):
-    python tools/plot_domain_shift.py
-    python tools/plot_domain_shift.py --analysis-dir output/domain_shift_analysis_v2
+Usage (from the repository root, after tools/domain_shift/quantify_domain_shift.py):
+    python tools/domain_shift/plot_domain_shift.py
+    python tools/domain_shift/plot_domain_shift.py --analysis-dir output/domain_shift_analysis_v2
 """
 
 import os
@@ -38,7 +38,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, GLCM_DISTANCES, HUE_BINS,
                                  circular_mean_deg, circular_concentration, signed_deg, load_pair)
 
@@ -88,7 +88,7 @@ def fig_example_patches(stats, out, seed):
                 ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)); ax.set_xticks([]); ax.set_yticks([])
                 sec = os.path.basename(path).split('_')[0]
                 ax.set_title(f"{d} {'NP' if k == 0 else 'NX'}" + (f" ({sec})" if d == 'Source' else ''), fontsize=10)
-    fig.suptitle("Esempi di patch 512x512 (2 per dominio, NP e NX affiancate)", fontsize=13)
+    fig.suptitle("Example 512x512 patches (2 per domain, NP and NX side by side)", fontsize=13)
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_esempi_patch.png'), dpi=110); plt.close(fig)
 
 
@@ -104,9 +104,9 @@ def fig_cdf(stats, out):
                 h = stats[f'{m}|{d}|hist'][ci]
                 ax.plot(np.cumsum(h) / h.sum(), color=COLORS[d], lw=2.6 if d == 'Source' else 2.2,
                         ls='--' if d == 'Source' else '-', label=d)
-            ax.plot([], [], color='0.75', label='singole sezioni Source')
-            ax.set_title(f"{m} - CDF canale {c}"); ax.set_xlim(0, 255); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
-            ax.set_xlabel('livello (0-255)'); ax.set_ylabel('F(livello)')
+            ax.plot([], [], color='0.75', label='single Source sections')
+            ax.set_title(f"{m} - CDF of channel {c}"); ax.set_xlim(0, 255); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
+            ax.set_xlabel('level (0-255)'); ax.set_ylabel('F(level)')
         axes[0, 0].legend(fontsize=8, loc='lower right')
         fig.tight_layout(); fig.savefig(os.path.join(out, f'ds2_cdf_{m}.png'), dpi=110); plt.close(fig)
 
@@ -118,14 +118,14 @@ def fig_white_point(white, out):
     x, w = np.arange(len(names)), 0.25
     for j, (c, col) in enumerate(zip('RGB', ['#d62728', '#2ca02c', '#1f77b4'])):
         axes[0].bar(x + (j - 1) * w, rgb[:, j], w, color=col, label=c)
-    axes[0].set_xticks(x); axes[0].set_xticklabels([f"{r['domain']}\n({r['patches']} patch, B/R {float(r['B/R']):.2f})" for r in white])
+    axes[0].set_xticks(x); axes[0].set_xticklabels([f"{r['domain']}\n({r['patches']} patches, B/R {float(r['B/R']):.2f})" for r in white])
     axes[0].set_ylim(0, 300); axes[0].grid(axis='y', alpha=0.3); axes[0].legend(ncol=3, loc='upper center')
-    axes[0].set_title("NP: colore dei pixel piu chiari (1% piu luminoso di ogni patch, mediana tra le patch)")
+    axes[0].set_title("NP: colour of the brightest pixels (top 1% of each patch, median over patches)")
     for i, r in enumerate(rgb):
         axes[1].add_patch(plt.Rectangle((i, 0), 0.9, 1, color=r / 255, ec='0.6'))
         axes[1].text(i + 0.45, -0.12, names[i], ha='center', fontsize=9)
     axes[1].set_xlim(-0.1, len(names)); axes[1].set_ylim(-0.25, 1.05); axes[1].axis('off')
-    axes[1].set_title("il 'bianco' di ogni dominio")
+    axes[1].set_title("the 'white' of each domain")
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_punto_di_bianco_NP.png'), dpi=110); plt.close(fig)
 
 
@@ -136,10 +136,10 @@ def fig_intra_vs_target(intra, report, out):
         for c, ch in enumerate(['V', 'S', 'L*', 'B']):
             ax, row = axes[r, c], by_key[(m, ch)]
             secs = section_order([k for k in row if k.startswith('sec')])
-            ax.bar(secs, [float(row[s]) for s in secs], color='#9ecae1', label='sezione vs resto del Source')
+            ax.bar(secs, [float(row[s]) for s in secs], color='#9ecae1', label='section vs rest of the Source')
             for t in TARGETS:
                 ax.axhline(report_value(report, t, m, 'w1', ch), color=COLORS[t], lw=2, label=f'{t} vs Source')
-            ax.set_title(f"{m} canale {ch}: W1 (livelli)"); ax.tick_params(axis='x', rotation=45, labelsize=8)
+            ax.set_title(f"{m} channel {ch}: W1 (levels)"); ax.tick_params(axis='x', rotation=45, labelsize=8)
             ax.grid(axis='y', alpha=0.3)
         axes[r, 0].legend(fontsize=8)
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_w1_intra_vs_target.png'), dpi=110); plt.close(fig)
@@ -151,8 +151,8 @@ def fig_per_section(stats, out):
     fig, axes = plt.subplots(2, 3, figsize=(17, 8.5))
     for r, m in enumerate(MODALITIES):
         src_sec = stats[f'{m}|Source|section']
-        for c, (key, label) in enumerate([('v_med', 'mediana di V per patch'), ('s_med', 'mediana di S per patch'),
-                                          ('gray_std', 'dev. std. dei grigi per patch')]):
+        for c, (key, label) in enumerate([('v_med', 'median V per patch'), ('s_med', 'median S per patch'),
+                                          ('gray_std', 'gray std per patch')]):
             src = stats[f'{m}|Source|{key}']
             data = [src[src_sec == s] for s in secs] + [stats[f'{m}|{t}|{key}'] for t in TARGETS]
             data = [x[np.isfinite(x)] for x in data]
@@ -160,7 +160,7 @@ def fig_per_section(stats, out):
             bp = ax.boxplot(data, showfliers=False, patch_artist=True)
             for i, b in enumerate(bp['boxes']):
                 b.set_facecolor('#c6dbef' if i < len(secs) else COLORS[groups[i]]); b.set_alpha(0.8)
-            ax.axhline(np.nanmedian(src), color=COLORS['Source'], ls='--', lw=1.2, label='mediana Source')
+            ax.axhline(np.nanmedian(src), color=COLORS['Source'], ls='--', lw=1.2, label='Source median')
             ax.set_xticks(range(1, len(groups) + 1)); ax.set_xticklabels(groups, rotation=45, ha='right', fontsize=8)
             ax.set_title(f"{m}: {label}"); ax.grid(axis='y', alpha=0.3)
         axes[r, 0].legend(fontsize=8)
@@ -183,7 +183,7 @@ def fig_hue(stats, out):
             ax.annotate('', xy=(np.deg2rad(circular_mean_deg(h)), circular_concentration(h) * ymax), xytext=(0, 0),
                         arrowprops=dict(color=COLORS[d], lw=3, arrowstyle='-|>'))
         ax.set_yticklabels([])
-        ax.set_title(f"{m}: distribuzione della tinta (pixel con S >= 30)\nfrecce: media circolare, lunghezza = R x massimo",
+        ax.set_title(f"{m}: hue distribution (pixels with S >= 30)\narrows: circular mean, length = R x maximum",
                      pad=24, fontsize=11)
         if i == 0:
             ax.legend(loc='lower left', bbox_to_anchor=(-0.25, -0.12), fontsize=9)
@@ -193,11 +193,11 @@ def fig_hue(stats, out):
             smooth = np.convolve(np.r_[hn[-1:], hn, hn[:1]], np.ones(3) / 3, mode='valid')   # light circular smoothing
             mu, R = circular_mean_deg(h), circular_concentration(h)
             ax2.plot(unrolled[order], smooth[order], color=COLORS[d], lw=2, ls='--' if d == 'Source' else '-',
-                     label=f"{d}: media {mu:.0f} gradi, R = {R:.2f}")
+                     label=f"{d}: mean {mu:.0f} degrees, R = {R:.2f}")
             ax2.axvline(float(signed_deg(mu)), color=COLORS[d], lw=1, ls=':')
         ax2.set_xlim(-180, 180); ax2.set_xticks(range(-180, 181, 30)); ax2.grid(alpha=0.3); ax2.legend(fontsize=8)
-        ax2.set_xlabel('tinta (gradi, 0 = rosso, 60 = giallo, -120 = blu, -60 = magenta)'); ax2.set_ylabel('frazione dei pixel saturi')
-        ax2.set_title(f"{m}: la stessa distribuzione 'srotolata'")
+        ax2.set_xlabel('hue (degrees, 0 = red, 60 = yellow, -120 = blue, -60 = magenta)'); ax2.set_ylabel('fraction of saturated pixels')
+        ax2.set_title(f"{m}: the same distribution, unrolled")
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_tinta_polare.png'), dpi=110); plt.close(fig)
 
 
@@ -206,16 +206,16 @@ def fig_blur(blur, report, out):
     for ax, m in zip(axes, MODALITIES):
         curve = sigma_columns(next(r for r in blur if r['modality'] == m))
         sig, val = list(curve), list(curve.values())
-        ax.plot(sig, val, 'k-o', label='curva di calibrazione (Source sfocato)')
+        ax.plot(sig, val, 'k-o', label='calibration curve (blurred Source)')
         for t in TARGETS:
             r = report_value(report, t, m, 'norm_sharpness_ratio', 'target/source')
-            ax.axhline(r, color=COLORS[t], lw=2, label=f'{t}: rapporto {r:.2f}')
+            ax.axhline(r, color=COLORS[t], lw=2, label=f'{t}: ratio {r:.2f}')
             if r < 1:
                 s_eq = float(np.interp(r, val[::-1], sig[::-1]))
                 ax.plot([s_eq], [r], 'o', color=COLORS[t], ms=10)
                 ax.annotate(f'sigma eq. = {s_eq:.2f}', (s_eq, r), textcoords='offset points', xytext=(10, 10), color=COLORS[t])
-        ax.set_xlabel('sigma del blur gaussiano (px)'); ax.set_ylabel('nitidezza normalizzata residua'); ax.set_ylim(0, 2.1)
-        ax.set_title(f"{m}: calibrazione blur -> nitidezza"); ax.grid(alpha=0.3); ax.legend(fontsize=8)
+        ax.set_xlabel('Gaussian blur sigma (px)'); ax.set_ylabel('residual normalized sharpness'); ax.set_ylim(0, 2.1)
+        ax.set_title(f"{m}: blur -> sharpness calibration"); ax.grid(alpha=0.3); ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_calibrazione_blur.png'), dpi=110); plt.close(fig)
 
 
@@ -224,18 +224,18 @@ def fig_noise(noise, report, out):
     for ax, m in zip(axes, MODALITIES):
         curve = sigma_columns(next(r for r in noise if r['modality'] == m))
         sig, val = list(curve), list(curve.values())
-        ax.plot(sig, val, 'k-o', label='curva di calibrazione (Source + rumore)')
+        ax.plot(sig, val, 'k-o', label='calibration curve (Source + noise)')
         ratios = {t: report_value(report, t, m, 'norm_sharpness_ratio', 'target/source') for t in TARGETS}
         for t, r in ratios.items():
-            ax.axhline(r, color=COLORS[t], lw=1.8, label=f'{t}: rapporto {r:.2f}' + (' (piu morbida: niente rumore)' if r < 1 else ''))
+            ax.axhline(r, color=COLORS[t], lw=1.8, label=f'{t}: ratio {r:.2f}' + (' (softer: no noise)' if r < 1 else ''))
         ax.plot([sig[-1]], [val[-1]], 's', color='0.3', ms=9)
-        ax.annotate(f'sigma {sig[-1]:.0f}: nitidezza x{val[-1]:.1f}\n(il rumore della pipeline generica)', (sig[-1], val[-1]),
+        ax.annotate(f'sigma {sig[-1]:.0f}: sharpness x{val[-1]:.1f}\n(the noise of the generic pipeline)', (sig[-1], val[-1]),
                     textcoords='offset points', xytext=(-150, -40), fontsize=9, color='0.25', arrowprops=dict(arrowstyle='->', color='0.4'))
         ax.set_yscale('log'); ax.set_ylim(0.45, max(14, val[-1] * 1.3))
         ax.set_yticks([0.5, 1, 1.5, 2, 3, 5, 10]); ax.set_yticklabels(['0.5', '1', '1.5', '2', '3', '5', '10'])
-        ax.set_xlabel("sigma dell'operazione noise (livelli su 255, per canale)")
-        ax.set_ylabel('nitidezza normalizzata / originale (scala log)')
-        ax.set_title(f'{m}: calibrazione rumore -> nitidezza'); ax.grid(alpha=0.3, which='both'); ax.legend(fontsize=8, loc='upper left')
+        ax.set_xlabel("sigma of the noise op (levels out of 255, per channel)")
+        ax.set_ylabel('normalized sharpness / original (log scale)')
+        ax.set_title(f'{m}: noise -> sharpness calibration'); ax.grid(alpha=0.3, which='both'); ax.legend(fontsize=8, loc='upper left')
         ins = ax.inset_axes([0.47, 0.1, 0.5, 0.42])
         small = [i for i, s in enumerate(sig) if s <= 6]
         ins.plot([sig[i] for i in small], [val[i] for i in small], 'k-o', ms=3)
@@ -246,7 +246,7 @@ def fig_noise(noise, report, out):
                 ins.annotate(f'{s_eq:.1f}', (s_eq, r), textcoords='offset points', xytext=(5, 4), color=COLORS[t],
                              fontsize=9, fontweight='bold')
         ins.set_xlim(0, 5.2); ins.set_ylim(0.95, 2.15); ins.tick_params(labelsize=7); ins.grid(alpha=0.3)
-        ins.set_title('zoom: sigma 0-5, lettura del sigma equivalente', fontsize=8)
+        ins.set_title('zoom: sigma 0-5, reading of the equivalent sigma', fontsize=8)
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_calibrazione_rumore.png'), dpi=110); plt.close(fig)
 
 
@@ -257,8 +257,8 @@ def fig_glcm_contrast(report, out):
             ax.plot(GLCM_DISTANCES, [report_value(report, d, m, 'glcm_contrast', f'd={k}') for k in GLCM_DISTANCES],
                     marker='o', color=COLORS[d], ls='--' if d == 'Source' else '-', label=d)
         ax.set_xscale('log'); ax.set_xticks(GLCM_DISTANCES); ax.set_xticklabels(GLCM_DISTANCES)
-        ax.set_xlabel('distanza d (px)'); ax.set_ylabel('contrasto GLCM (livelli quantizzati a 64)')
-        ax.set_title(f"{m}: contrasto GLCM (contenuto delle patch, padding escluso)"); ax.grid(alpha=0.3); ax.legend()
+        ax.set_xlabel('distance d (px)'); ax.set_ylabel('GLCM contrast (levels quantized to 64)')
+        ax.set_title(f"{m}: GLCM contrast (patch content, padding excluded)"); ax.grid(alpha=0.3); ax.legend()
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_glcm_contrasto.png'), dpi=110); plt.close(fig)
 
 
@@ -270,10 +270,10 @@ def fig_ratios(suggestions, out):
             ax, vals = axes[r, c], [float(row[t]) for t in TARGETS]
             ax.bar(TARGETS, vals, color=[COLORS[t] for t in TARGETS]); ax.axhline(1.0, color='k', ls='--', lw=1)
             lo, hi = json.loads(row['suggested_range'])
-            ax.axhspan(lo, hi, color='0.85', zorder=0, label=f'intervallo suggerito [{lo}, {hi}]')
+            ax.axhspan(lo, hi, color='0.85', zorder=0, label=f'suggested range [{lo}, {hi}]')
             for i, v in enumerate(vals):
                 ax.text(i, v, f'{v:.2f}', ha='center', va='bottom')
-            ax.set_title(f"{m}: {quantity}, rapporto target/Source"); ax.legend(fontsize=8)
+            ax.set_title(f"{m}: {quantity}, target/Source ratio"); ax.legend(fontsize=8)
             ax.set_ylim(0, max(1.6, max(vals) * 1.15))
     fig.tight_layout(); fig.savefig(os.path.join(out, 'ds2_rapporti_mediane.png'), dpi=110); plt.close(fig)
 

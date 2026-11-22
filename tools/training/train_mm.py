@@ -7,13 +7,13 @@ validation mIoU with its .meta.json sidecar, the last-epoch weights, train.log, 
 TensorBoard events. Training stops by early stopping on the moving median of the validation mIoU.
 
 Usage (from the repository root):
-    python tools/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml
-    python tools/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml --seed 42
+    python tools/training/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml
+    python tools/training/train_mm.py --cfg configs/ablation/generic/mortars_v3_gen-060.yaml --seed 42
 """
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import torch 
 import argparse
 import yaml
@@ -37,7 +37,7 @@ from semseg.losses import get_loss
 from semseg.schedulers import get_scheduler
 from semseg.optimizers import get_optimizer
 from semseg.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp, get_logger, cal_flops, print_iou
-from tools.val_mm import evaluate
+from tools.training.val_mm import evaluate
 import wandb
 from semseg.metrics import Metrics
 import gc
@@ -48,38 +48,38 @@ import statistics
 
 
 def compute_sample_weights(dataset, ignore_label):
-    #Calcola pesi per WeightedRandomSampler (livello immagine) robusto a classi molto rare.
+    # Image-level weights for the WeightedRandomSampler, robust to very rare classes.
 
-    max_class_weight=10.0 #massimo peso per classe per evitare pesi enormi
-    eps=1e-6 # per evitare divisioni per zero
+    max_class_weight=10.0 # cap on the class weight, to avoid huge weights
+    eps=1e-6 # avoids divisions by zero
     verbose=True 
 
     n_classes = dataset.n_classes
-    class_pixel_counts = torch.zeros(n_classes, dtype=torch.float) # tensore di zeri per contare i pixel di ogni classe in tutto il dataset
-    sample_classes = [] # lista per salvare quali classi compaiono in ciascun campione
+    class_pixel_counts = torch.zeros(n_classes, dtype=torch.float) # pixel count of each class over the whole dataset
+    sample_classes = [] # classes present in each sample
 
     iterator = dataset
     if verbose:
         iterator = tqdm(dataset, desc="Computing sample weights")
 
     for _, lbl, _ in iterator:
-        classes = torch.unique(lbl) # trova i valori di classe (0, 1, 2, 3) unici presenti nella mappa
+        classes = torch.unique(lbl) # class values (0, 1, 2, 3) present in the label map
         if ignore_label is not None:
-            classes = classes[classes != ignore_label] # rimuove la classe ignore_label ovvero la classe 3 che rappresenta il padding o zone prive di informazione
+            classes = classes[classes != ignore_label] # drops ignore_label (class 3: padding or areas without information)
 
         sample_classes.append(classes)
 
         for c in classes:
-            class_pixel_counts[c] += (lbl == c).sum() # conta quanti pixel appartengono a ciascuna classe
+            class_pixel_counts[c] += (lbl == c).sum() # pixels of each class
 
-    # calcola il peso di ogni classe invertendo la frequenza dei pixel (sotto sqrt per ammorbidire il peso)
-    # => classi rare avranno pesi alti, classi frequenti pesi bassi
+    # class weight = inverse pixel frequency, under a square root to soften it
+    # => rare classes get high weights, frequent classes low weights
     class_weights = torch.sqrt(1.0 / (class_pixel_counts + eps))
 
-    class_weights = torch.clamp(class_weights, max=max_class_weight) # clampa i pesi al valore massimo 10
+    class_weights = torch.clamp(class_weights, max=max_class_weight) # clamps the weights to max_class_weight
 
-    # assegna a ciascuna immagine il peso della classe più rara presente in essa
-    # => classi rare verranno estratte con maggiore frequenza dal data loader
+    # each image gets the weight of the rarest class it contains
+    # => images with rare classes are drawn more often by the data loader
     sample_weights = []
     for classes in sample_classes: 
         if len(classes) == 0:
@@ -94,7 +94,7 @@ def compute_sample_weights(dataset, ignore_label):
 
 
 def main(cfg, save_dir):
-    # inizializzazione delle variabile leggendo lo .yaml
+    # settings read from the config
     start = time.time()
     best_mIoU = 0.0
     best_epoch = 0
@@ -132,7 +132,7 @@ def main(cfg, save_dir):
     stop_reason = 'max epochs'
     last_epoch = 0
 
-    # crea le pipeine di data augmentation (crop, flip, rotazioni, normalizzazione) per il training e validation
+    # augmentation pipelines (crop, flips, rotations, normalization) for training and validation.
     # The normalization is resolved once and shared by training and validation (semseg/normalization.py)
     normalization = resolve_normalization(cfg)
     logger.info(f'Input normalization: {normalization}')
@@ -163,7 +163,7 @@ def main(cfg, save_dir):
     valset = eval(dataset_cfg['NAME'])(dataset_cfg['ROOT'], 'val', valtransform, dataset_cfg['MODALS'], num_classes=cfg['DATASET']['NUM_CLASSES'])
     class_names = trainset.CLASSES
 
-    # --- inizializzazione modello e checkpoint ---
+    # --- model and checkpoint initialization ---
     model = eval(model_cfg['NAME'])(model_cfg['BACKBONE'], trainset.n_classes, dataset_cfg['MODALS'])
     resume_checkpoint = None
     if os.path.isfile(resume_path):
@@ -174,8 +174,8 @@ def main(cfg, save_dir):
         msg = model.load_state_dict(state_dict)
         logger.info(msg)
     else:
-        # Carica i pesi pre-trained. Determina se il file contiene solo i pesi
-        # del backbone (es. mit_b3.pth) o l'intero modello (es. epoch81_79.51.pth)
+        # Loads the pretrained weights. The file may hold only the backbone weights
+        # (e.g. mit_b3.pth) or the whole model (e.g. a previous best checkpoint)
         pretrained_path = model_cfg['PRETRAINED']
         if os.path.isfile(pretrained_path):
             pretrained_state = torch.load(pretrained_path, map_location=torch.device('cpu'))
@@ -188,15 +188,15 @@ def main(cfg, save_dir):
             # *_checkpoint.pth stores the DataParallel state dict: without this strip no key would match
             pretrained_state = {k[len('module.'):] if k.startswith('module.') else k: v
                                 for k, v in pretrained_state.items()}
-            # Verifica se contiene chiavi del decode_head (= modello intero)
+            # decode_head keys present = whole model
             has_decode_head = any('decode_head' in k for k in pretrained_state.keys())
             if has_decode_head:
-                # Caricamento modello intero (fine-tuning da checkpoint completo)
+                # whole model (fine-tuning from a full checkpoint)
                 msg = model.load_state_dict(pretrained_state, strict=False)
                 logger.info(f'Loaded FULL model from {pretrained_path}')
                 logger.info(msg)
             else:
-                # Caricamento solo backbone (pre-training da ImageNet)
+                # backbone only (ImageNet pretraining)
                 model.init_pretrained(pretrained_path)
                 logger.info(f'Loaded backbone from {pretrained_path}')
             del pretrained_state
@@ -209,9 +209,9 @@ def main(cfg, save_dir):
     model = torch.nn.DataParallel(model, device_ids=cfg['GPU_IDs'])
     model = model.to(device)
     
-    iters_per_epoch = len(trainset) // train_cfg['BATCH_SIZE'] # calcola quanti batch in un'epoca di addestramento
+    iters_per_epoch = len(trainset) // train_cfg['BATCH_SIZE'] # batches per training epoch
 
-    # --- inizializza la loss function, ottimizzatore e scheduler ---
+    # --- loss function, optimizer and scheduler ---
     #loss_fn = get_loss(loss_cfg['NAME'], trainset.ignore_label, None)
     cls_weights = None
     if loss_cfg['CLS_WEIGHTS']:
@@ -226,7 +226,7 @@ def main(cfg, save_dir):
     if val_smoothing > 1:
         logger.info(f'Plateau and early stopping on the {val_smoothing_mode} val mIoU of the last {val_smoothing} validations')
 
-    # --- definisce come campionare i dati per il training---
+    # --- training sampler ---
     if train_cfg['DDP']: 
         sampler = DistributedSampler(trainset, dist.get_world_size(), dist.get_rank(), shuffle=True)
         sampler_val = None
@@ -239,8 +239,7 @@ def main(cfg, save_dir):
             sampler = RandomSampler(trainset)
         sampler_val = None
 
-    # Se si riprende un addestramento, ripristina lo stato dell'epoca,
-    # dell'ottimizzatore e dello scheduler e libera memoria dal checkpoint
+    # When resuming, restores epoch, optimizer and scheduler state and frees the checkpoint memory
     if resume_checkpoint:
         start_epoch = resume_checkpoint['epoch'] - 1
         optimizer.load_state_dict(resume_checkpoint['optimizer_state_dict'])
@@ -253,7 +252,7 @@ def main(cfg, save_dir):
         val_history = es_state.get('history', val_history)
         del resume_checkpoint
 
-    # istanzia i DataLoader per il training set e validation set
+    # training and validation data loaders
     trainloader = DataLoader(trainset, batch_size=train_cfg['BATCH_SIZE'], num_workers=num_workers, drop_last=True, pin_memory=False, sampler=sampler)
     valloader = DataLoader(valset, batch_size=eval_cfg['BATCH_SIZE'], num_workers=num_workers, pin_memory=False, sampler=sampler_val)
 
@@ -270,12 +269,12 @@ def main(cfg, save_dir):
         logger.info(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
 
-    # --- Training Loop principale ---
+    # --- main training loop ---
     for epoch in range(start_epoch, epochs):
         last_epoch = epoch + 1
         # Clean Memory
-        torch.cuda.empty_cache() # ad ogni epoca svuota la cache cuda
-        gc.collect()             # e invoca il garbage collector
+        torch.cuda.empty_cache() # empties the CUDA cache at every epoch
+        gc.collect()             # and runs the garbage collector
 
         model.train()
         if train_cfg['DDP']: sampler.set_epoch(epoch)
@@ -286,31 +285,31 @@ def main(cfg, save_dir):
         pbar = tqdm(enumerate(trainloader), total=iters_per_epoch, desc=f"Epoch: [{epoch+1}/{epochs}] Iter: [{0}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss:.8f}")
         metrics = Metrics(trainset.n_classes, trainloader.dataset.ignore_label, device)
 
-        for iter, (sample, lbl, _) in pbar: # ciclo sui singoli batch di immagini
-            optimizer.zero_grad(set_to_none=True) # azzera i gradienti degli step precedenti
-            sample = [x.to(device) for x in sample] # sposta l'input
-            lbl = lbl.to(device)                    # e le maschere lbl sulla GPU
+        for iter, (sample, lbl, _) in pbar: # loop over the batches
+            optimizer.zero_grad(set_to_none=True) # clears the gradients of the previous step
+            sample = [x.to(device) for x in sample] # moves the inputs
+            lbl = lbl.to(device)                    # and the labels to the GPU
 
             # --- forward pass ---
-            with autocast(enabled=train_cfg['AMP']):    # autocast (precisione mista float16/float32).
-                logits = model(sample)                  # La rete produce i logits
-                loss = loss_fn(logits, lbl)             # e viene calcola la loss
+            with autocast(enabled=train_cfg['AMP']):    # autocast (mixed float16/float32 precision, if AMP)
+                logits = model(sample)                  # forward pass: logits
+                loss = loss_fn(logits, lbl)             # loss
 
-            metrics.update(logits.softmax(dim=1), lbl)  # applica la softmax ai logits e aggiorna la confusion matrix
-                                                        # per calcolare le metriche del training
+            metrics.update(logits.softmax(dim=1), lbl)  # softmax of the logits, updates the confusion matrix
+                                                        # for the training metrics
 
             # --- backward pass --- 
             if torch.isnan(loss) or torch.isinf(loss):
                 logger.warning(f"NaN or Inf loss detected at Epoch {epoch+1}, Iter {iter+1}. Skipping backward step.")
             else:
-                scaler.scale(loss).backward() # calcola i gradienti riscalati per evitare sottoflusso di memoria
-                scaler.step(optimizer)        # applica l'aggiornamento dei pesi
+                scaler.scale(loss).backward() # backward on the scaled loss (avoids float16 underflow)
+                scaler.step(optimizer)        # weight update
                 scaler.update()               
-                train_loss += loss.item()     # aggiorna la loss accumulata del training
+                train_loss += loss.item()     # accumulated training loss
 
-            scheduler.step()                  # aggiorna il learning rate a livello di iterazione
+            scheduler.step()                  # per-iteration learning rate update
             if torch.cuda.is_available():
-                torch.cuda.synchronize()      # attende che le operazioni su GPU abbiano terminato l'esecuzione
+                torch.cuda.synchronize()      # waits for the GPU operations to finish
 
             lr = scheduler.get_lr()               
             lr = sum(lr) / len(lr)
@@ -320,20 +319,20 @@ def main(cfg, save_dir):
             # No per-iteration empty_cache()/gc.collect(): they left the GPU idle about 30% of the time
             # (peak memory 9.1 of 11 GB, no need to release it); the per-epoch cleanup above is kept.
 
-            # aggiorna il messaggio sulla progress bar
+            # progress bar message
             pbar.set_description(f"Epoch: [{epoch+1}/{epochs}] Iter: [{iter+1}/{iters_per_epoch}] LR: {lr:.8f} Loss: {train_loss / (iter+1):.8f}")
         
        
-        epoch_train_loss = train_loss / iters_per_epoch # calcola la loss media dell'epoca appena conclusa
-        train_losses.append(epoch_train_loss) # la salva in train_losses e la invia a tensor board
+        epoch_train_loss = train_loss / iters_per_epoch # mean loss of the epoch
+        train_losses.append(epoch_train_loss) # kept in train_losses (written to train_loss.json)
 
         train_loss /= iter+1
         if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
             writer.add_scalar('train/loss', train_loss, epoch)
             writer.add_scalar('train/lr', lr, epoch)
 
-        # calcola le metriche complessive dell'epoca per il training set
-        ious, miou = metrics.compute_iou() # IoU di ciascuna classe, mIoU media
+        # training metrics of the epoch
+        ious, miou = metrics.compute_iou() # per-class IoU and mean IoU
         acc, macc = metrics.compute_pixel_acc() # pixel accuracy
         f1, mf1 = metrics.compute_f1() # F1-score
 
@@ -377,7 +376,7 @@ def main(cfg, save_dir):
                     es_best, es_bad = smoothed, 0
                 else:
                     es_bad += 1
-                # se la miou ottenuta supera la precedente best_mIoU => elimina i vecchi file di pesi salvati e aggiorna best_mIoU e best_epoch
+                # new best val mIoU: removes the previous best files and updates best_mIoU and best_epoch
                 if miou > best_mIoU:
                     prev_best_ckp = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_epoch{best_epoch}_{best_mIoU}_checkpoint.pth"
                     prev_best = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_epoch{best_epoch}_{best_mIoU}.pth"
@@ -389,10 +388,10 @@ def main(cfg, save_dir):
                     cur_best = save_dir / f"{model_cfg['NAME']}_{model_cfg['BACKBONE']}_{dataset_cfg['NAME']}_epoch{best_epoch}_{best_mIoU}.pth"
                     # torch.save(model.module.state_dict() if train_cfg['DDP'] else model.state_dict(), cur_best)
 
-                    # salva su disco 2 file: 
-                    # cur_best: contiene solo i pesi del modello (state_dict()), utile per fare inferenza rapida
-                    # cur_best_ckp: contiene il checkpoint completo (inclusi stati dell'optimizer, scheduler ed epoca attuale),
-                    # in modo tale da poter riprendere l'addestramento in futuro
+                    # two files are saved:
+                    # cur_best: model weights only (state_dict()), for inference
+                    # cur_best_ckp: full checkpoint (optimizer and scheduler state, epoch),
+                    # to resume the training
 
                     torch.save(model.module.state_dict(), cur_best)
                     # --- 
@@ -415,7 +414,7 @@ def main(cfg, save_dir):
                     logger.info(f'Stopping at epoch {epoch+1}: {stop_reason}')
                     break
 
-    # conclusione e pulizia 
+    # end of training and cleanup
     if (train_cfg['DDP'] and torch.distributed.get_rank() == 0) or (not train_cfg['DDP']):
         writer.close()
         # Weights of the last epoch, to check whether training had converged (best vs last)
@@ -426,8 +425,8 @@ def main(cfg, save_dir):
     pbar.close()
     end = time.gmtime(time.time() - start)
 
-    # Stampa a schermo una tabella riassuntiva finale con la miglior mIoU e il tempo totale, 
-    # e salva la lista di tutte le loss di training nel file train_loss.json.
+    # Final summary table (best mIoU, total time); the training losses go to train_loss.json
+    # and the summary to train_summary.json.
     summary = {
         'best_miou': best_mIoU,
         'best_epoch': best_epoch,
@@ -460,7 +459,7 @@ if __name__ == '__main__':
     parser.add_argument('--p-image', type=float, default=None, help='Overrides TRAIN.AUGMENTATION.PHOTOMETRIC.P_IMAGE (sweep runs)')
     args = parser.parse_args()
 
-    train_losses = [] # lista globale per l'andamento della loss a ogni epoca
+    train_losses = [] # global list of the per-epoch training loss
 
     with open(args.cfg, encoding='utf-8') as f:
         cfg = yaml.load(f, Loader=yaml.SafeLoader)
@@ -476,7 +475,7 @@ if __name__ == '__main__':
     fix_seeds(cfg['TRAIN'].get('SEED', 3407))
     setup_cudnn()
 
-    """legge il .yaml e crea cartelle varie, file di log ecc."""
+    # run folder name, output folder and log file
     # gpu = setup_ddp()
     modals = ''.join([m[0] for m in cfg['DATASET']['MODALS']])
     model = cfg['MODEL']['BACKBONE']

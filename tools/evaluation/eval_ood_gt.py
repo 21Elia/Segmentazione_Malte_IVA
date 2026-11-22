@@ -14,16 +14,16 @@ TOTAL masks (black = class / valid mortar). This tool:
 4. Computes IoU / F1 / accuracy per class, mIoU and the aggregate fraction (GT vs predicted)
    on the pixels that are both annotated and predicted, and saves error maps.
 
-Predictions are the per-patch masks written by tools/run_all_inferences_softmax.py
+Predictions are the per-patch masks written by tools/evaluation/run_all_inferences_softmax.py
 (green = aggregates), one source per sub-folder:
     single : masks/        single forward pass
     tta    : masks_tta/    8-transform test-time augmentation
     corr   : masks_corr/   inverse photometric correction (--inverse-correction)
 
 Usage (from the repository root):
-    python tools/eval_ood_gt.py                                     # every model, every source found
-    python tools/eval_ood_gt.py --experiments v3_baseline_med v3_gen_060_p080 --sources single tta
-    python tools/eval_ood_gt.py --experiments v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
+    python tools/evaluation/eval_ood_gt.py                                     # every model, every source found
+    python tools/evaluation/eval_ood_gt.py --experiments v3_baseline_med v3_gen_060_p080 --sources single tta
+    python tools/evaluation/eval_ood_gt.py --experiments v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
         --sources single corr --output-dir output/campaign3/gt_ood_corr
 """
 
@@ -37,7 +37,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.patch_geometry import patch_regions, content_slices, np_rect
 
 Image.MAX_IMAGE_PIXELS = None
@@ -74,7 +74,7 @@ SOURCES = {
 
 
 def model_keys(runs_dir):
-    """Model keys of the run folders, as in tools/run_all_inferences_softmax.py."""
+    """Model keys of the run folders, as in tools/evaluation/run_all_inferences_softmax.py."""
     return [os.path.basename(d).lower().replace('mmsf-', '', 1).replace('-', '_')
             for d in sorted(glob.glob(os.path.join(runs_dir, 'MMSF-*'))) if os.path.isdir(d)]
 

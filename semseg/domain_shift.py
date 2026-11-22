@@ -2,13 +2,13 @@
 Image statistics of the domain shift analysis (thesis, Chapter 3) and the fit of the data-driven
 augmentation parameters (thesis, Section 4.4), shared by the tools of the analysis:
 
-  tools/quantify_domain_shift.py      statistics, distances and parameters (writes the analysis folder)
-  tools/plot_domain_shift.py          figures of the analysis
-  tools/check_augmentation_params.py  closure test and coverage of a training config
-  tools/fit_inverse_correction.py     inverse correction target -> Source
+  tools/domain_shift/quantify_domain_shift.py      statistics, distances and parameters (writes the analysis folder)
+  tools/domain_shift/plot_domain_shift.py          figures of the analysis
+  tools/domain_shift/check_augmentation_params.py  closure test and coverage of a training config
+  tools/domain_shift/fit_inverse_correction.py     inverse correction target -> Source
 
 Every statistic uses only VALID pixels: the zero padding of the NP/NX alignment is excluded
-through the per-patch masks valid/<patch>.png written by tools/make_valid_masks.py.
+through the per-patch masks valid/<patch>.png written by tools/preprocessing/make_valid_masks.py.
 """
 
 import os
@@ -31,7 +31,7 @@ except ImportError:
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# Patch folders of each domain (tools/preprocess.py, tools/preprocess_new_images.py, tools/preprocess_5x.py)
+# Patch folders of each domain (tools/preprocessing/preprocess.py, tools/preprocessing/preprocess_new_images.py, tools/preprocessing/preprocess_5x.py)
 DOMAINS = {
     'Source': 'data/mortars_v2',
     '1_SCALA': 'data/nuove_patches/1_SCALA',

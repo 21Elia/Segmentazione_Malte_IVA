@@ -3,7 +3,7 @@
 Batch inference of the trained models on the patches of the new sections (out-of-domain).
 
 Every run folder under --runs-dir (default output/campaign3/MMSFormer, one folder per config and seed,
-written by tools/train_mm.py) is registered automatically: MMSF-V3-GEN-060-p080-seed42 becomes the model
+written by tools/training/train_mm.py) is registered automatically: MMSF-V3-GEN-060-p080-seed42 becomes the model
 key 'v3_gen_060_p080_seed42'. For each model the best checkpoint of its folder is loaded, with the input
 normalization recorded in its .meta.json sidecar.
 
@@ -11,23 +11,23 @@ For every patch pair (NP, NX) the predicted class map is saved as a PNG (green =
   - single forward pass                       -> masks/
   - --tta: mean of the softmax over 8 flips/rotations (the dihedral group of the square) -> masks_tta/
   - --inverse-correction PARAMS_JSON: the patches of each target are first brought towards the Source with
-    the gamma, contrast and saturation fitted by tools/fit_inverse_correction.py -> masks_corr/ (masks_tta_corr/)
+    the gamma, contrast and saturation fitted by tools/domain_shift/fit_inverse_correction.py -> masks_corr/ (masks_tta_corr/)
 
 Outputs: <output-root>/inference_nuove/inference_nuove_<model>/<SECTION>/MMSFormer-B3/<masks dir>/<patch>.png
 for 1_SCALA and UNITO_B, <output-root>/inference_5x/inference_5x_scale=057_<model>/ARCHEO_02/... for ARCHEO_02.
-They are read by tools/eval_ood_gt.py and tools/reconstruct_section.py.
+They are read by tools/evaluation/eval_ood_gt.py and tools/evaluation/reconstruct_section.py.
 
 Usage (from the repository root):
-    python tools/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B
-    python tools/run_all_inferences_softmax.py --models v3_baseline_med v3_gen_060_p080 --domains 1_SCALA UNITO_B --tta
-    python tools/run_all_inferences_softmax.py --models v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
+    python tools/evaluation/run_all_inferences_softmax.py --domains 1_SCALA UNITO_B
+    python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med v3_gen_060_p080 --domains 1_SCALA UNITO_B --tta
+    python tools/evaluation/run_all_inferences_softmax.py --models v3_baseline_med v3_baseline_med_seed42 v3_baseline_med_seed3408 \
         --domains 1_SCALA UNITO_B \
         --inverse-correction output/domain_shift_analysis_v2/inverse_correction/inverse_correction_params.json
 """
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import glob
 import json
 import time
@@ -53,7 +53,7 @@ Image.MAX_IMAGE_PIXELS = None
 DEFAULT_RUNS_DIR = os.path.join('output', 'campaign3', 'MMSFormer')
 DEFAULT_OUTPUT_ROOT = os.path.join('output', 'campaign3')
 
-# Patch folders (tools/preprocess_new_images.py, tools/preprocess_5x.py) and output sub-folder of each domain
+# Patch folders (tools/preprocessing/preprocess_new_images.py, tools/preprocessing/preprocess_5x.py) and output sub-folder of each domain
 DOMAINS_REGISTRY = {
     '1_SCALA': {
         'patches_dir': 'data/nuove_patches/1_SCALA',
@@ -124,7 +124,7 @@ def open_img(file_path):
 
 
 def inverse_correction(img, p):
-    """Inverse photometric correction target -> Source of tools/fit_inverse_correction.py.
+    """Inverse photometric correction target -> Source of tools/domain_shift/fit_inverse_correction.py.
 
     Same functions and order as semseg.domain_shift.apply_tone: gamma -> contrast -> saturation
     on the uint8 RGB patch, before resizing and normalization.
@@ -151,7 +151,7 @@ def main():
     parser.add_argument('--tta', action='store_true',
                         help="Average the softmax over the 8 flips/rotations; masks go to masks_tta/")
     parser.add_argument('--inverse-correction', default=None, metavar='PARAMS_JSON',
-                        help="Apply the inverse photometric correction of tools/fit_inverse_correction.py "
+                        help="Apply the inverse photometric correction of tools/domain_shift/fit_inverse_correction.py "
                              "(inverse_correction_params.json) to every NP/NX patch; masks go to masks_corr/ "
                              "(masks_tta_corr/ with --tta), so the uncorrected predictions are kept")
     args = parser.parse_args()

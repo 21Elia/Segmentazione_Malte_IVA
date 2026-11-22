@@ -36,9 +36,9 @@ Outputs (default output/domain_shift_analysis_v2/):
   w1_normalized_heatmap.png, sharpness.png, glcm_correlation.png
 
 Usage (from the repository root, CPU only):
-    python tools/make_valid_masks.py          # once, writes the valid/ masks
-    python tools/quantify_domain_shift.py
-    python tools/plot_domain_shift.py         # figures of the analysis
+    python tools/preprocessing/make_valid_masks.py          # once, writes the valid/ masks
+    python tools/domain_shift/quantify_domain_shift.py
+    python tools/domain_shift/plot_domain_shift.py         # figures of the analysis
 """
 
 import os
@@ -53,7 +53,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.domain_shift import (BLUR_SIGMAS, CHANNELS, DOMAINS, GLCM_DISTANCES, HUE_BINS, MODALITIES,
                                   NOISE_SIGMAS, RANGE_MARGIN, TARGETS, accumulate, blur_calibration,
                                   calibration_set, circular_concentration, circular_mean_deg,
@@ -77,7 +77,7 @@ def main():
                for d, root in DOMAINS.items()}
     for d, s in samples.items():
         has_valid = os.path.isdir(os.path.join(DOMAINS[d], 'valid'))
-        print(f"{d:10s}: {len(s)} patches sampled" + ("" if has_valid else "  WARNING: no valid/ masks, run tools/make_valid_masks.py"))
+        print(f"{d:10s}: {len(s)} patches sampled" + ("" if has_valid else "  WARNING: no valid/ masks, run tools/preprocessing/make_valid_masks.py"))
     cal_files = calibration_set(samples['Source'])
     print(f"calibration / fitting: {len(cal_files)} Source patches from {len({section_of(f) for f in cal_files})} sections")
 
@@ -238,7 +238,7 @@ def main():
     write_csv('white_point.csv', white_rows)
     write_csv('hue_by_section.csv', hue_rows)
 
-    # statistics for tools/plot_domain_shift.py
+    # statistics for tools/domain_shift/plot_domain_shift.py
     arrays = {'channels': np.array(list(CHANNELS)), 'glcm_distances': np.array(GLCM_DISTANCES)}
     for m in MODALITIES:
         for d in DOMAINS:

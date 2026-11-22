@@ -4,9 +4,9 @@ Summary tables of the ablation (thesis, Chapter 6): one row per run and mean +- 
 (ddof = 1) across seeds for each configuration and group.
 
 Inputs:
-  - <runs-dir>/<run>/train_summary.json   best validation mIoU and epochs (tools/train_mm.py)
-  - <runs-dir>/<run>/eval_*.txt           test-set mIoU and IoU per class (tools/val_mm.py)
-  - gt_ood_metrics.csv                    out-of-domain metrics (tools/eval_ood_gt.py)
+  - <runs-dir>/<run>/train_summary.json   best validation mIoU and epochs (tools/training/train_mm.py)
+  - <runs-dir>/<run>/eval_*.txt           test-set mIoU and IoU per class (tools/training/val_mm.py)
+  - gt_ood_metrics.csv                    out-of-domain metrics (tools/evaluation/eval_ood_gt.py)
   - optionally the gt_ood_metrics.csv of the inverse correction (sources 'single' and 'corr')
 
 Outputs (in --output-dir):
@@ -19,8 +19,8 @@ Only the configurations of the thesis are summarized; the Baseline replica train
 (run key ending in '_micc') is reported separately and kept out of the means.
 
 Usage (from the repository root):
-    python tools/summarize_results.py
-    python tools/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv
+    python tools/evaluation/summarize_results.py
+    python tools/evaluation/summarize_results.py --corr-csv output/campaign3/gt_ood_corr/gt_ood_metrics.csv
 """
 
 import os

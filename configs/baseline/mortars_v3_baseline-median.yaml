@@ -17,7 +17,7 @@ MODEL:
 
 DATASET:
   NAME          : MORTARS
-  ROOT          : 'data/mortars_v2'       # historical sections, from tools/preprocess.py
+  ROOT          : 'data/mortars_v2'       # historical sections, from tools/preprocessing/preprocess.py
   IGNORE_LABEL  : 3                       # alignment padding
   MODALS        : ['paralleli', 'incrociati']
   NUM_CLASSES   : 2                       # 0 = binder (porosity merged), 1 = aggregates
@@ -44,7 +44,7 @@ TRAIN:
       VFLIP: 0.5                          # p=0.5
       ROT90: 0.5                          # p=0.5
       ROTATE: {DEGREES: 15, P: 0.2}       # +-15° rotation with p=0.2
-      RESIZED_CROP: {SCALE: [0.5, 2.0]}   # probability=1 
+      RESIZED_CROP: {SCALE: [0.5, 2.0]}   # always applied
 
 LOSS:
   NAME          : OhemCrossEntropy

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verification of the photometric augmentation parameters derived by tools/quantify_domain_shift.py.
+Verification of the photometric augmentation parameters derived by tools/domain_shift/quantify_domain_shift.py.
 
 1. Closure test. Source calibration patches (10 per section) are transformed with the values
    estimated for each target, and the normalized W1 (W1 / max intra-Source W1, the metric of the
@@ -23,9 +23,9 @@ Verification of the photometric augmentation parameters derived by tools/quantif
    of every target falls in the distribution of the augmented Source (percentile, 2.5-97.5 = covered).
    Outputs config_coverage.csv, ds2_copertura_config.png and ds2_anteprima_config.png.
 
-Usage (from the repository root, after tools/quantify_domain_shift.py):
-    python tools/check_augmentation_params.py
-    python tools/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml
+Usage (from the repository root, after tools/domain_shift/quantify_domain_shift.py):
+    python tools/domain_shift/check_augmentation_params.py
+    python tools/domain_shift/check_augmentation_params.py --cfg configs/ablation/data_driven/full/mortars_v3_dd-060.yaml
 """
 
 import os
@@ -47,7 +47,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.domain_shift import (DOMAINS, TARGETS, MODALITIES, CHANNELS, HUE_BINS, sample_patches,
                                  calibration_set, load_calibration, load_pair, lap_stats, w1, w1_circular,
                                  hist_quantile, to_tensor, fit_tone, section_of)
@@ -56,10 +56,10 @@ from semseg.augmentations_mm import PhotometricAugmentation
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 VARIANTS_ROUND1 = ['none', 'hsv', 'hsv_no_hue', 'rgb_gains']
 VARIANTS_ROUND2 = ['none', 'hsv_no_hue', 'gamma', 'temperature']
-LABELS = {'none': 'nessuna trasformazione', 'hsv': 'operazioni HSV (b, c, s, h, blur)', 'hsv_no_hue': 'A: HSV senza tinta (brightness, contrast, saturation)',
-          'rgb_gains': 'guadagni RGB + contrasto', 'gamma': 'B: gamma, contrast, saturation',
-          'temperature': 'C: temperatura, gamma, contrast, saturation'}
-SHORT = {'hsv': 'HSV', 'hsv_no_hue': 'A', 'rgb_gains': 'guadagni', 'gamma': 'B', 'temperature': 'C'}
+LABELS = {'none': 'no transformation', 'hsv': 'HSV ops (b, c, s, h, blur)', 'hsv_no_hue': 'A: HSV without hue (brightness, contrast, saturation)',
+          'rgb_gains': 'RGB gains + contrast', 'gamma': 'B: gamma, contrast, saturation',
+          'temperature': 'C: temperature, gamma, contrast, saturation'}
+SHORT = {'hsv': 'HSV', 'hsv_no_hue': 'A', 'rgb_gains': 'gains', 'gamma': 'B', 'temperature': 'C'}
 BAR_COLORS = {'none': '0.6', 'hsv': '#9467bd', 'hsv_no_hue': '#c5b0d5', 'rgb_gains': '#17becf', 'gamma': '#e377c2', 'temperature': '#17becf'}
 
 
@@ -149,10 +149,10 @@ def ops_title(ops):
         if name == 'gains':
             parts.append('RGB ' + ', '.join(f'{x:.2f}' for x in v))
         elif name == 'hue':
-            parts.append(f'h {v * 360:+.0f} gradi')
+            parts.append(f'h {v * 360:+.0f} deg')
         else:
             parts.append(f'{short[name]} {v:.2f}')
-    return ', '.join(parts) if parts else 'originale'
+    return ', '.join(parts) if parts else 'original'
 
 
 # ---------------------------------------------------------------------------- figures
@@ -180,9 +180,9 @@ def closure_figure(results, variants, path):
                 ax.bar(x + (i - (len(variants) - 1) / 2) * w, [results[(m, t, v)][ch] for ch in chans], w,
                        color=BAR_COLORS[v], label=LABELS[v])
             ax.axhline(1, color='k', ls='--', lw=1); ax.set_xticks(x); ax.set_xticklabels(chans); ax.grid(axis='y', alpha=0.3)
-            ax.set_title(f"{m}: Source trasformato vs {t}")
+            ax.set_title(f"{m}: transformed Source vs {t}")
             if c == 0:
-                ax.set_ylabel('W1 / max W1 intra-Source')
+                ax.set_ylabel('W1 / max intra-Source W1')
     axes[0, 0].legend(fontsize=8)
     fig.tight_layout(); fig.savefig(path, dpi=110); plt.close(fig)
 
@@ -195,7 +195,7 @@ def preview_figure(m, mod, src_tensor, src_name, all_variants, columns, stats, p
             ops = all_variants[(m, t)][v]
             ax = axes[r, k]
             ax.imshow(chain(src_tensor, ops).permute(1, 2, 0).numpy()); ax.set_xticks([]); ax.set_yticks([])
-            title = f'Source originale ({src_name})' if v == 'none' else f'{SHORT[v]}: {ops_title(ops)}'
+            title = f'original Source ({src_name})' if v == 'none' else f'{SHORT[v]}: {ops_title(ops)}'
             ax.set_title(title, fontsize=8)
         files = list(stats[f'NP|{t}|file']); rng.shuffle(files)
         for name in files:          # a real target patch without padding
@@ -204,8 +204,8 @@ def preview_figure(m, mod, src_tensor, src_name, all_variants, columns, stats, p
                 img, _ = load_pair(os.path.join(DOMAINS[t], 'paralleli', name), mod)
                 break
         ax = axes[r, -1]; ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)); ax.set_xticks([]); ax.set_yticks([])
-        ax.set_title(f'{t} reale', fontsize=8); axes[r, 0].set_ylabel(f'verso {t}', fontsize=11)
-    fig.suptitle(f"{m}: la stessa patch del Source trasformata con i parametri stimati per ogni target", fontsize=12)
+        ax.set_title(f'real {t}', fontsize=8); axes[r, 0].set_ylabel(f'towards {t}', fontsize=11)
+    fig.suptitle(f"{m}: the same Source patch transformed with the parameters fitted for each target", fontsize=12)
     fig.tight_layout(); fig.savefig(path, dpi=100); plt.close(fig)
 
 
@@ -263,7 +263,7 @@ def config_check(cfg_path, cal, stats, draws, seed, out_dir, fig_dir):
         print(f"  {r['modality']} {r['target']:9s} {r['statistic']:5s} target {r['target_median']:8.3f} -> "
               f"percentile {r['target_percentile']:5.1f} of the augmented Source {'(covered)' if r['covered'] else '(NOT covered)'}")
 
-    labels = {'V': 'mediana di V', 'std': 'dev. std. dei grigi', 'S': 'mediana di S', 'sharp': 'nitidezza normalizzata'}
+    labels = {'V': 'median V', 'std': 'gray std', 'S': 'median S', 'sharp': 'normalized sharpness'}
     colors = {'1_SCALA': '#ff7f0e', 'UNITO_B': '#2ca02c', 'ARCHEO_02': '#d62728'}
     fig, axes = plt.subplots(2, 4, figsize=(18, 8))
     for r_, m in enumerate(MODALITIES):
@@ -277,7 +277,7 @@ def config_check(cfg_path, cal, stats, draws, seed, out_dir, fig_dir):
                     ax.axhline(row['target_median'], color=colors[row['target']], lw=2, label=row['target'])
             ax.set_title(f"{m}: {labels[k]} per patch"); ax.grid(axis='y', alpha=0.3)
         axes[r_, 0].legend(fontsize=8)
-    fig.suptitle(f"Copertura dei target con l'augmentation di {os.path.basename(cfg_path)} (baffi: 2.5-97.5 percentile)", fontsize=12)
+    fig.suptitle(f"Target coverage with the augmentation of {os.path.basename(cfg_path)} (whiskers: 2.5-97.5 percentile)", fontsize=12)
     fig.tight_layout(); fig.savefig(os.path.join(fig_dir, 'ds2_copertura_config.png'), dpi=110); plt.close(fig)
 
     random.seed(seed + 1)
@@ -289,8 +289,8 @@ def config_check(cfg_path, cal, stats, draws, seed, out_dir, fig_dir):
         sample = {k: v.clone() for k, v in base.items()} if j == 0 else aug({k: v.clone() for k, v in base.items()})
         for r_, mod in enumerate(('paralleli', 'incrociati')):
             ax = axes[r_, j]; ax.imshow(sample[mod].permute(1, 2, 0).numpy()); ax.set_xticks([]); ax.set_yticks([])
-            ax.set_title(('originale' if j == 0 else f'estrazione {j}') + (' NP' if r_ == 0 else ' NX'), fontsize=9)
-    fig.suptitle(f"Sette estrazioni casuali dell'augmentation di {os.path.basename(cfg_path)} sulla stessa patch", fontsize=12)
+            ax.set_title(('original' if j == 0 else f'draw {j}') + (' NP' if r_ == 0 else ' NX'), fontsize=9)
+    fig.suptitle(f"Seven random draws of the augmentation of {os.path.basename(cfg_path)} on the same patch", fontsize=12)
     fig.tight_layout(); fig.savefig(os.path.join(fig_dir, 'ds2_anteprima_config.png'), dpi=90); plt.close(fig)
 
 

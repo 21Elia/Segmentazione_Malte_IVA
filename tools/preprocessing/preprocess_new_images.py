@@ -29,7 +29,7 @@ except Exception:
     pass
 
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.preprocessing import find_image, pad_image_to_size, is_valid_patch_position, create_false_color_rgb, align_patch_pair
 
 

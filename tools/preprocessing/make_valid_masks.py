@@ -9,8 +9,8 @@ sharpness, GLCM) use them to ignore the padding. For datasets with labels, the m
 cross-checked against the ignore label 3 written by preprocess.py.
 
 Usage (from the repository root):
-    python tools/make_valid_masks.py
-    python tools/make_valid_masks.py --datasets data/mortars_v2
+    python tools/preprocessing/make_valid_masks.py
+    python tools/preprocessing/make_valid_masks.py --datasets data/mortars_v2
 """
 
 import os
@@ -21,7 +21,7 @@ import argparse
 import numpy as np
 from PIL import Image
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.patch_geometry import valid_mask
 
 # dataset root -> where its grid_metadata.json files live (one per section)

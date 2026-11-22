@@ -16,7 +16,7 @@ import numpy as np
 import cv2
 import glob
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from semseg.patch_geometry import paste_content
 
 
