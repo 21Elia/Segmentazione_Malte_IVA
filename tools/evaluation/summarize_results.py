@@ -13,7 +13,8 @@ Outputs (in --output-dir):
   runs_summary.csv      per run: test mIoU, val mIoU, OOD mIoU per section and mean, aggregate fractions,
                         per-class accuracy, TTA, collapse flag (>= 65% predicted aggregates on a section)
   configs_summary.csv   per configuration and per group: mean and std of the same columns
-  correction_summary.csv  (with --corr-csv) OOD mIoU of the Baselines with and without the correction
+  correction_summary.csv  (with --corr-csv) OOD mIoU of the Baselines with and without the correction,
+                        one row per Baseline plus a 'mean' and a 'std' row
 
 Only the configurations of the thesis are summarized; the Baseline replica trained on another machine
 (run key ending in '_micc') is reported separately and kept out of the means.
@@ -192,7 +193,11 @@ def main():
                 row[f'pred_aggr_{sec}'] = per_section[sec]['pred_aggregate_fraction']
             row['miou_ood'] = statistics.fmean(row[f'miou_{sec}'] for sec in SECTIONS)
             rows.append(row)
-        write_csv(os.path.join(args.output_dir, 'correction_summary.csv'), rows)
+        # Two closing rows with the mean and the std across the Baselines of every column
+        stats_rows = [{'run': 'mean'}, {'run': 'std'}]
+        for c in (c for c in (rows[0] if rows else {}) if c != 'run'):
+            stats_rows[0][c], stats_rows[1][c] = mean_std([r[c] for r in rows])
+        write_csv(os.path.join(args.output_dir, 'correction_summary.csv'), rows + stats_rows)
         m, s = mean_std([r['miou_ood'] for r in rows])
         print(f"Inverse correction on the Baselines: mean OOD {fmt(m, s, 1)} ({len(rows)} runs)")
     print(f"\nTables saved to {args.output_dir}")
